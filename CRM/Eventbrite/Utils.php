@@ -2,7 +2,7 @@
 
 
 /**
- * Utilities for Evenbrite extension.
+ * Utilities for Eventbrite extension.
  *
  */
 class CRM_Eventbrite_Utils {

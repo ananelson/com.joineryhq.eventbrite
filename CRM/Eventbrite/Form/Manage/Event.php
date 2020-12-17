@@ -31,8 +31,8 @@ class CRM_Eventbrite_Form_Manage_Event extends CRM_Admin_Form {
       $organizationId = _eventbrite_civicrmapi('Setting', 'getvalue', [
         'name' => "eventbrite_api_organization_id",
       ]);
-      $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-      if ($ebEvents = CRM_Utils_Array::value('events', $eb->request("/organizations/{$organizationId}/events/"))) {
+      $eb = CRM_Eventbrite_EventbriteApi::singleton();
+      if ($ebEvents = CRM_Utils_Array::value('events', $eb->requestOrg("events"))) {
         foreach ($ebEvents as $ebEvent) {
           $ebEventOptions[$ebEvent['id']] = "{$ebEvent['name']['text']} (ID: {$ebEvent['id']})";
         }
@@ -44,7 +44,7 @@ class CRM_Eventbrite_Form_Manage_Event extends CRM_Admin_Form {
         // field name
         'eb_entity_id',
         // field label
-        E::ts('Evenbrite Event'),
+        E::ts('Eventbrite Event'),
         // list of options
         $ebEventOptions,
         // is required

@@ -1,0 +1,27 @@
+HTTP/1.1 200 OK
+
+{
+  "pagination": {
+    "object_count": 1,
+    "page_number": 1,
+    "page_size": 1,
+    "page_count": 1,
+    "continuation": "dGhpcyBpcyBhIGNvbnRpbnVhdGlvbiB0b2tlbg",
+    "has_more_items": false
+  },
+  "webhooks": [{
+    "endpoint_url": "https://c3e123a02a37497897e08927816bb0c920c9de23c77804f.example.com",
+    "actions": [
+      "event.created",
+      "event.published",
+      "order.placed"
+    ],
+    "event_id": "62541733007",
+    "id": "2006536",
+    "resource_uri": "https://www.eventbriteapi.com/v3/webhooks/1990496/",
+    "created": "2020-03-03T18:09:37Z",
+    "user_id": "308733706151"
+  }
+  ]
+}
+

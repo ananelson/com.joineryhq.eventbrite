@@ -32,7 +32,6 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
   public function buildQuickForm() {
     $settings = $this->_settings;
     foreach ($settings as $name => $setting) {
-
       if (isset($setting['quick_form_type'])) {
         switch ($setting['html_type']) {
           case 'Select':
@@ -173,10 +172,11 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
     $unsettings = array_fill_keys(array_keys(array_diff_key($settings, $this->_submittedValues)), NULL);
     _eventbrite_civicrmapi('setting', 'create', $unsettings);
 
-    // Assume the token is only for one Eventbrite organization; fetch and record
-    // that organization ID.
-    $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-    if ($organizations = CRM_Utils_Array::value('organizations', $eb->request('users/me/organizations/'))) {
+    // Assume the token is only for one Eventbrite organization;
+    // fetch and record that organization ID.
+    // TODO only fetch this if needed, don't fetch if nothing has changed
+    $eb = CRM_Eventbrite_EventbriteApi::singleton();
+    if ($organizations = CRM_Utils_Array::value('organizations', $eb->request('users/me/organizations'))) {
       $organizationId = $organizations[0]['id'];
       _eventbrite_civicrmapi('setting', 'create', array(
         'eventbrite_api_organization_id' => $organizationId,
@@ -264,8 +264,8 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
     if (!$this->_flagSubmitted) {
       if ($token = CRM_Utils_Array::value('eventbrite_api_token', $this->setDefaultValues())) {
         try {
-          $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-          $result = $eb->request('/users/me/');
+          $eb = CRM_Eventbrite_EventbriteApi::singleton();
+          $result = $eb->request('users/me');
           if ($error = CRM_Utils_Array::value('error', $result)) {
             $isPass = FALSE;
             $error_message = CRM_Utils_Array::value('status_code', $result);
@@ -284,89 +284,98 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
     return $isPass;
   }
 
+  private function deleteInvalidWebhooks($invalidWebhooks) {
+    foreach ($invalidWebhooks as $webhookId) {
+      $body = array('id' => $webhookId);
+      try {
+        $result = $eb->requestOrg('webhooks', $body, NULL, 'DELETE');
+      } catch (EventbriteApiError $e) {}
+    }
+  }
+
+  private function createWebhook($webhookActions) {
+    $listener = CRM_Eventbrite_Utils::getWebhookListenerUrl();
+    $body = array(
+        'endpoint_url' => $listener,
+        'actions' => implode(",", $webhookActions),
+    );
+    try {
+        $result = $eb->requestOrg('webhooks', $body, NULL, 'POST');
+        return $result['id'];
+    } catch (EventbriteApiError $e) {
+        return null;
+    }
+  }
+
   private function _confirmWebhookOnFormLoad() {
     if (!$this->_flagSubmitted) {
-      $organization_id = CRM_Utils_Array::value('eventbrite_api_organization_id', $this->setDefaultValues());
-      $request_path = '/organizations/'. $organization_id .'/webhooks/';
       if ($token = CRM_Utils_Array::value('eventbrite_api_token', $this->setDefaultValues())) {
         try {
-          $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-          $result = $eb->request('/organizations/'. $organization_id .'/webhooks/');
-          $myListener = CRM_Eventbrite_Utils::getWebhookListenerUrl();
-          $countWebhooksExising = $createdWebhooks = 0;
+          // the actions we want the webhook to have
+          $webhookActions = array("attendee.updated", "order.updated");
 
+          $webhookListenerUrl = CRM_Eventbrite_Utils::getWebhookListenerUrl();
+
+          $validWebhookId = NULL;
+          $invalidWebhooks = array();
+          $webhookStatusMessages = array();
+
+          // check if webhooks are already set up ok
+          $eb = CRM_Eventbrite_EventbriteApi::singleton();
+          $result = $eb->requestOrg('webhooks');
           foreach ($result['webhooks'] as $webhook) {
-            if ($webhook['endpoint_url'] == $myListener) {
-              if (in_array('attendee.updated', $webhook['actions'])) {
-                $countWebhooksExising++;
+            // Webhook may be for another system, ignore.
+            if ($webhook['endpoint_url'] != $webhookListenerUrl) {
+              continue;
+            }
+
+            if (sort($webhook['actions']) == $webhookActions) {
+              // Webhook is already correctly configured!
+              if (!isset($validWebhookId)) {
+                $validWebhookId = $webhook['id'];
+              } else {
+                $webhookStatusMessages[] = "More than one webhook is configured, will try to delete webhook #" . $webhook['id'];
+                $invalidWebhooks[] = $webhook['id'];
               }
-              if (in_array('order.updated', $webhook['actions'])) {
-                $countWebhooksExising++;
-              }
+            } else {
+              // Webhook does not have the correct actions.
+              $webhookStatusMessages[] = "Webhook found, but not set up correctly, will try to delete webhook #" . $webhook['id'];
+              $invalidWebhooks[] = $webhook['id'];
             }
+          }
+        
+          // attempt to delete the invalid webhooks
+          $this->deleteInvalidWebhooks($invalidWebhooks);
+
+          // attempt to create a valid webhook if none exists
+          if (!isset($validWebhookId)) {
+            // create webhooks
+            $webhookStatusMessages[] = "No previous valid webhook found, will try to create one.";
+            $validWebhookId = $this->createWebhook($webhookActions);
+          } else {
+            $webhookStatusMessages[] = "Eventbrite webhooks appear to be correctly configured.";
           }
 
-          if ($countWebhooksExising < 2) {
-            // Create attendee.updated webhook.
-            $body = array(
-              'endpoint_url' => $myListener,
-              'actions' => "attendee.updated",
-            );
-            $result = $eb->request($request_path, $body, NULL, 'POST');
-            if ($error = CRM_Utils_Array::value('error', $result)) {
-              $error_message = CRM_Utils_Array::value('status_code', $result);
-              $error_message .= ': ' . $error;
-              $error_message .= ': ' . CRM_Utils_Array::value('error_description', $result);
-              $msg = E::ts('Error establishing webhook configuration via Eventbrite API. Eventbrite said: <em>%1</em>', array('1' => $error_message));
-              CRM_Core_Session::setStatus($msg, E::ts('Eventbrite webhook'), 'error', array('unique' => FALSE));
-            }
-            else {
-              $createdWebhooks++;
-            }
-            // Create order.updated webhook.
-            $body = array(
-              'endpoint_url' => $myListener,
-              'actions' => "order.updated",
-            );
-            $result = $eb->request( $request_path, $body, NULL, 'POST');
-            if ($error = CRM_Utils_Array::value('error', $result)) {
-              $error_message = CRM_Utils_Array::value('status_code', $result);
-              $error_message .= ': ' . $error;
-              $error_message .= ': ' . CRM_Utils_Array::value('error_description', $result);
-              $msg = E::ts('Error establishing webhook configuration via Eventbrite API. Eventbrite said: <em>%1</em>', array('1' => $error_message));
-              CRM_Core_Session::setStatus($msg, E::ts('Eventbrite webhook'), 'error', array('unique' => FALSE));
-            }
-            else {
-              $createdWebhooks++;
-            }
-
-            if ($createdWebhooks == 2) {
-              $msgString = 'Eventbrite webhooks have been successfully configured in your Evenbrite account.';
-              $msg = E::ts($msgString);
-              CRM_Core_Session::setStatus($msg, E::ts('Eventbrite webhook setup'), 'success');
-
-            }
-          }
-          elseif ($countWebhooksExising > 2) {
-            $msgString = 'Eventbrite webhooks are not correctly configured and need manual configuration. Please see <a href="%1">your account\'s Manage Webhooks page</a> and ensure there are webhook(s) pointing to %2 for the actions <em>attendee.update</em> and <em>order.update</em>. Also remove any redundant webhooks (pointing to the same endpoint for the same actrions).';
-            $msgArgs = array(
-              '1' => 'https://www.eventbrite.com/myaccount/webhooks/',
-              '2' => $myListener,
-            );
-            $msg = E::ts($msgString, $msgArgs);
-            CRM_Core_Session::setStatus($msg, E::ts('Eventbrite webhook setup'), 'error');
-          }
-          else {
-            $msgString = 'Eventbrite webhooks appear to be correctly configured in your Evenbrite account.';
-            $msg = E::ts($msgString);
-            CRM_Core_Session::setStatus($msg, E::ts('Eventbrite webhook setup check'), 'success');
-          }
+        } catch (EventbriteApiError $e) {
+          $webhookStatusMessages[] = "Error connecting to Eventbrite webhook API.";
+          $webhookStatusMessages[] = $e->message;
+          $webhookStatusMessages[] = "You can view and manage webhooks manually at " .
+            "https://www.eventbrite.com/account-settings/webhooks";
+          $webhookStatusMessages[] = "Webhooks should have a Payload URI of " . 
+            $webhookListenerUrl . " and actions " . implode(", ", $webhookActions);
         }
-        catch (CRM_Core_Exception $e) {
-          CRM_Core_Session::setStatus($e->getMessage(), E::ts('Eventbrite API Exception'), 'error');
+
+        // combine all the status messages into a single notification
+        $statusMessage = implode("\n", $webhookStatusMessages);
+
+        if (isset($validWebhookId)) {
+          // things are basically ok
+          CRM_Core_Session::setStatus($statusMessage, E::ts('Eventbrite webhook setup'), 'success');
+        } else {
+          // things are not okay
+          CRM_Core_Session::setStatus($statusMessage, E::ts('Eventbrite webhook'), 'error');
         }
       }
     }
   }
-
 }

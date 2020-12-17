@@ -16,8 +16,8 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       $this->order = $this->data;
     }
     else {
-      $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-      $this->order = $eb->request("/orders/{$this->entityId}/", NULL, array('attendees', 'attendee-answers'));
+      $eb = CRM_Eventbrite_EventbriteApi::singleton();
+      $this->order = $eb->requestOrg("orders/{$this->entityId}", NULL, array('attendees', 'attendee-answers'));
     }
   }
 

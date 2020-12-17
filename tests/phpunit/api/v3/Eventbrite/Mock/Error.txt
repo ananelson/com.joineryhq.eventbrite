@@ -1,0 +1,8 @@
+HTTP/1.1 200 OK
+
+{
+    "error": "VENUE_AND_ONLINE",
+    "error_description": "You cannot both specify a venue and set online_event",
+    "status_code": 400
+}
+

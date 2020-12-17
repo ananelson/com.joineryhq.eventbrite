@@ -45,9 +45,9 @@ class CRM_Eventbrite_Form_Manage_Tickettype extends CRM_Admin_Form {
     }
     else {
       // Get Eventbrite ticket types for the given Eventbrite event.
-      $eb = CRM_Eventbrite_EvenbriteApi::singleton();
+      $eb = CRM_Eventbrite_EventbriteApi::singleton();
       $parentLink = $this->get('parentLink');
-      $result = $eb->request("/events/{$parentLink['eb_entity_id']}/ticket_classes/");
+      $result = $eb->requestOrg("events/{$parentLink['eb_entity_id']}/ticket_classes");
       $ebTicketTypeOptions = array('' => '');
       if ($ebTicketTypes = CRM_Utils_Array::value('ticket_classes', $result)) {
         foreach ($ebTicketTypes as $ebTicketType) {
@@ -73,7 +73,7 @@ class CRM_Eventbrite_Form_Manage_Tickettype extends CRM_Admin_Form {
           // field name
           'eb_entity_id',
           // field label
-          E::ts('Evenbrite Ticket Type'),
+          E::ts('Eventbrite Ticket Type'),
           // list of options
           $ebTicketTypeOptions,
           // is required

@@ -128,8 +128,8 @@ class CRM_Eventbrite_Page_Manage_Tickettypes extends CRM_Core_Page_Basic {
     $this->assign('pid', $this->get('pid'));
 
     // Get and assign eb event title
-    $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-    $result = $eb->request("/events/{$this->ebEventId}/");
+    $eb = CRM_Eventbrite_EventbriteApi::singleton();
+    $result = $eb->requestOrg("events/{$this->ebEventId}");
     $eventTitle = $result['name']['text'];
     $this->assign('eventTitle', $eventTitle);
 
@@ -168,8 +168,8 @@ class CRM_Eventbrite_Page_Manage_Tickettypes extends CRM_Core_Page_Basic {
     }
 
     if (empty($this->ebTicketTypes[$ticketTypeId])) {
-      $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-      $result = $eb->request("/events/{$this->ebEventId}/ticket_classes/{$ticketTypeId}/");
+      $eb = CRM_Eventbrite_EventbriteApi::singleton();
+      $result = $eb->requestOrg("events/{$this->ebEventId}/ticket_classes/{$ticketTypeId}");
       $this->ebTicketTypes[$ticketTypeId] = $result['name'];
     }
 

@@ -46,8 +46,8 @@ class CRM_Eventbrite_Form_Manage_Field extends CRM_Admin_Form {
       $parentLink = $this->get('parentLink');
 
       // Get Eventbrite questions for the given Eventbrite event.
-      $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-      $result = $eb->request("/events/{$parentLink['eb_entity_id']}/questions/");
+      $eb = CRM_Eventbrite_EventbriteApi::singleton();
+      $result = $eb->requestOrg("events/{$parentLink['eb_entity_id']}/questions");
       $ebFieldOptions = array('' => '');
       if ($ebFields = CRM_Utils_Array::value('questions', $result)) {
         foreach ($ebFields as $ebField) {
@@ -111,7 +111,7 @@ class CRM_Eventbrite_Form_Manage_Field extends CRM_Admin_Form {
           // field name
           'eb_entity_id',
           // field label
-          E::ts('Evenbrite Question'),
+          E::ts('Eventbrite Question'),
           // list of options
           $ebFieldOptions,
           // is required

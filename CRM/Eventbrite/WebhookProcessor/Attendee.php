@@ -18,8 +18,8 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
       $this->attendee = $this->data;
     }
     else {
-      $eb = CRM_Eventbrite_EvenbriteApi::singleton();
-      $this->attendee = $eb->request("/attendees/{$this->entityId}/", NULL, array('attendee-answers'));
+      $eb = CRM_Eventbrite_EventbriteApi::singleton();
+      $this->attendee = $eb->requestOrg("attendees/{$this->entityId}", NULL, array('attendee-answers'));
     }
   }
 
