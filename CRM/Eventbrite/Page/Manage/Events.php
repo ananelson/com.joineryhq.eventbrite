@@ -105,7 +105,7 @@ class CRM_Eventbrite_Page_Manage_Events extends CRM_Core_Page_Basic {
     parent::browse();
 
     $rows = $this->get_template_vars('rows');
-    $eb = CRM_Eventbrite_EvetnbriteApi::singleton();
+    $eb = CRM_Eventbrite_EventbriteApi::singleton();
     foreach ($rows as &$row) {
       $event = $eb->requestOrg("events/{$row['eb_entity_id']}");
       if (empty($event['name'])) {

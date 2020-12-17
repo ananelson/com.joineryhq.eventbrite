@@ -275,7 +275,7 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
             CRM_Core_Session::setStatus($msg, E::ts('Eventbrite token'), 'error');
           }
         }
-        catch (CRM_Core_Exception $e) {
+        catch (EventbriteApiError $e) {
           CRM_Core_Session::setStatus($e->getMessage(), E::ts('Eventbrite API Exception'), 'error');
           $isPass = FALSE;
         }
@@ -286,9 +286,9 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
 
   private function deleteInvalidWebhooks($invalidWebhooks) {
     foreach ($invalidWebhooks as $webhookId) {
-      $body = array('id' => $webhookId);
       try {
-        $result = $eb->requestOrg('webhooks', $body, NULL, 'DELETE');
+        $eb = CRM_Eventbrite_EventbriteApi::singleton();
+        $result = $eb->request("webhooks/$webhookId", NULL, NULL, 'DELETE');
       } catch (EventbriteApiError $e) {}
     }
   }
@@ -300,6 +300,7 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
         'actions' => implode(",", $webhookActions),
     );
     try {
+        $eb = CRM_Eventbrite_EventbriteApi::singleton();
         $result = $eb->requestOrg('webhooks', $body, NULL, 'POST');
         return $result['id'];
     } catch (EventbriteApiError $e) {
@@ -324,12 +325,13 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
           $eb = CRM_Eventbrite_EventbriteApi::singleton();
           $result = $eb->requestOrg('webhooks');
           foreach ($result['webhooks'] as $webhook) {
-            // Webhook may be for another system, ignore.
             if ($webhook['endpoint_url'] != $webhookListenerUrl) {
-              continue;
+              // TODO detect http vs https for same URL
+              // Webhook may be for another system, ignore.
+                  continue;
             }
 
-            if (sort($webhook['actions']) == $webhookActions) {
+            if ($webhook['actions'] == $webhookActions) {
               // Webhook is already correctly configured!
               if (!isset($validWebhookId)) {
                 $validWebhookId = $webhook['id'];
@@ -358,7 +360,7 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
 
         } catch (EventbriteApiError $e) {
           $webhookStatusMessages[] = "Error connecting to Eventbrite webhook API.";
-          $webhookStatusMessages[] = $e->message;
+          $webhookStatusMessages[] = (string) $e;
           $webhookStatusMessages[] = "You can view and manage webhooks manually at " .
             "https://www.eventbrite.com/account-settings/webhooks";
           $webhookStatusMessages[] = "Webhooks should have a Payload URI of " . 
@@ -366,7 +368,7 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
         }
 
         // combine all the status messages into a single notification
-        $statusMessage = implode("\n", $webhookStatusMessages);
+        $statusMessage = implode("\n<br />\n", $webhookStatusMessages);
 
         if (isset($validWebhookId)) {
           // things are basically ok
