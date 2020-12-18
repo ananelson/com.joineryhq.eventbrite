@@ -13,6 +13,8 @@ class CRM_Eventbrite_WebhookProcessorFactory {
       throw new CRM_Exception('Bad data. Missing parameter "config" in message');
     }
 
+    $autocreateEvents =  _eventbrite_civicrmapi('Setting', 'getvalue', array('name' => "eventbrite_autocreate_events"));
+
     switch (CRM_Utils_Array::value('action', $data['config'])) {
       case 'order.updated':
         $processor = new CRM_Eventbrite_WebhookProcessor_Order($data);
@@ -20,6 +22,16 @@ class CRM_Eventbrite_WebhookProcessorFactory {
 
       case 'attendee.updated':
         $processor = new CRM_Eventbrite_WebhookProcessor_Attendee($data);
+        break;
+
+      case 'event.created':
+      case 'event.updated':
+        if ($autocreateEvents) {
+          $processor = new CRM_Eventbrite_WebhookProcessor_Event($data);
+        } else {
+          // ignore event related hooks
+          $processor = FALSE;
+        }
         break;
 
       default:

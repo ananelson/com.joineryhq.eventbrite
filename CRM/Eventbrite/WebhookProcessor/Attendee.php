@@ -12,15 +12,10 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
   private $contactId = NULL;
   protected $participantId = NULL;
   private $eventId = NULL;
+  public $expansions = array('attendee-answers');
 
   protected function loadData() {
-    if (CRM_Utils_Array::value('resource_uri', $this->data)) {
-      $this->attendee = $this->data;
-    }
-    else {
-      $eb = CRM_Eventbrite_EventbriteApi::singleton();
-      $this->attendee = $eb->requestOrg("attendees/{$this->entityId}", NULL, array('attendee-answers'));
-    }
+    $this->attendee = $this->generateData();
   }
 
   public function process() {

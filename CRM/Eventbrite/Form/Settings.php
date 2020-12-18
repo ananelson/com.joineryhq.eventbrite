@@ -313,7 +313,7 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
       if ($token = CRM_Utils_Array::value('eventbrite_api_token', $this->setDefaultValues())) {
         try {
           // the actions we want the webhook to have
-          $webhookActions = array("attendee.updated", "order.updated");
+          $webhookActions = array("attendee.updated", "event.created", "event.updated", "order.updated");
 
           $webhookListenerUrl = CRM_Eventbrite_Utils::getWebhookListenerUrl();
 
@@ -330,6 +330,8 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
               // Webhook may be for another system, ignore.
                   continue;
             }
+
+            sort($webhook['actions']);
 
             if ($webhook['actions'] == $webhookActions) {
               // Webhook is already correctly configured!
@@ -375,7 +377,7 @@ class CRM_Eventbrite_Form_Settings extends CRM_Core_Form {
           CRM_Core_Session::setStatus($statusMessage, E::ts('Eventbrite webhook setup'), 'success');
         } else {
           // things are not okay
-          CRM_Core_Session::setStatus($statusMessage, E::ts('Eventbrite webhook'), 'error');
+          CRM_Core_Session::setStatus($statusMessage, E::ts('Eventbrite webhook setup'), 'error');
         }
       }
     }

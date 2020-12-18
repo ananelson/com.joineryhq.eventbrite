@@ -160,7 +160,6 @@ class CRM_Eventbrite_EventbriteApi {
     // prepare and send request
     $options = $this->requestOptions($body, $expand, $method);
     $url = $this->ebUrl($path, $expand);
-
     $context = stream_context_create($options);
     $result = @file_get_contents($url, FALSE, $context);
 

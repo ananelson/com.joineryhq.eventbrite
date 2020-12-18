@@ -36,6 +36,13 @@ Configuration options are available at Administer > CiviEvent > Eventbrite Integ
 
 To test, run the Scheduled Job called Call Eventbrite.Runqueue API manually. 
 
+## Upgrading
+
+New settings for autoimport events will not be visible until you
+
+```drush cvapi System.flush```
+
+
 ## Support
 ![screenshot](/images/joinery-logo.png)
 

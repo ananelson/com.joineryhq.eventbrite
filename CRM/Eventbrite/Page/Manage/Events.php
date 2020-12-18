@@ -102,7 +102,6 @@ class CRM_Eventbrite_Page_Manage_Events extends CRM_Core_Page_Basic {
    * @inheritDoc
    */
   public function browse() {
-    parent::browse();
 
     $rows = $this->get_template_vars('rows');
     $eb = CRM_Eventbrite_EventbriteApi::singleton();
@@ -117,6 +116,7 @@ class CRM_Eventbrite_Page_Manage_Events extends CRM_Core_Page_Basic {
       $row['eb_event_name'] = CRM_Utils_Array::value('text', $event['name']);
     }
     $this->assign('rows', $rows);
+    parent::browse();
   }
 
   /**
