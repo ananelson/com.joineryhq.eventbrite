@@ -2,86 +2,79 @@
 
 use CRM_Eventbrite_ExtensionUtil as E;
 
+const STUDENT_ROLE = 7;
+const CODE_FIELD = 'custom_157';
+const CREDIT_AMOUNT_FIELD = 'custom_161';
+const EVENTBRITE_DISCOUNT_ID_FIELD = 'custom_158';
+const USED_IN_EVENTBRITE_FIELD = 'custom_163';
+const USED_IN_EVENTBRITE = 3;
+const VALUE_USED_FIELD = 'custom_164';
+
 /**
  * Class for processing Eventbrite 'Attendee' webhook events.
  *
  */
 class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookProcessor {
 
+  public $expansions = array('attendee-answers', 'promotional_code');
   private $attendee;
-  private $contactId = NULL;
-  protected $participantId = NULL;
-  private $eventId = NULL;
-  public $expansions = array('attendee-answers');
+
+  public $eventId = NULL;
+  public $eventParticipants = NULL;
+
+  public $contactId = NULL;
+  public $participantId = NULL;
+  public $linkId = NULL;
+
+  public $voucherCode = NULL;
+  public $discountId = NULL;
 
   protected function loadData() {
     $this->attendee = $this->generateData();
   }
 
-  public function process() {
-
-    // Ensure we have a link for the event; otherwise any Participants would be nonsensical.
-    $this->eventId = _eventbrite_civicrmapi('EventbriteLink', 'getValue', array(
-      'eb_entity_type' => 'Event',
-      'civicrm_entity_type' => 'Event',
-      'eb_entity_id' => CRM_Utils_Array::value('event_id', $this->attendee),
-      'return' => 'civicrm_entity_id',
-    ), "Processing Attendee {$this->entityId}, attempting to get Event ID.");
-    if (!$this->eventId) {
-      CRM_Eventbrite_BAO_EventbriteLog::create(array(
-        'message' => "Could not find EventbriteLink record 'Event' for attendee {$this->entityId} with 'event_id': " . CRM_Utils_Array::value('event_id', $this->attendee) . "; skipping Attendee. In method " . __METHOD__ . ", file " . __FILE__ . ", line " . __LINE__,
-        'message_type_id' => CRM_Eventbrite_BAO_EventbriteLog::MESSAGE_TYPE_ID_GENERAL,
-      ));
-      return;
-    }
-
-    // Ensure we have a valid participant role based on Attendee ticket class.
-    // Otherwise, just skip this Attendee.
-    if (!self::getRolePerTicketType(CRM_Utils_Array::value('ticket_class_id', $this->attendee))) {
-      return;
-    }
-
-    /*
-     * Now that we have the latest Attendee data, the basic idea is to do this:
-     *
-     * Determine which CiviCRM participant and contact to work with:
-     *  Start with a collection of contacts matching the latest Attendee data, per the Contact.duplicatecheck API;
-     *  Also start with a Participant linked to the Attendee ID, if any.
-     *  If there's a linked participant:
-     *    If that linked participant Contact is in the duplicatecheck collection, it means identifying info (name, email) hasn't changed.
-     *      use that contactId / participantId.
-     *      update that contact with the latest Attendee data.
-     *      update that participant with the latest Attendee data.
-     *    Else, it means identifying info (name, email) HAS changed; we'll preserve the existing contact, and use (or create) another one with this info.
-     *      If the duplicatecheck collection contains any contacts,
-     *        use the lowest ContactId
-     *        update that contact with the latest Attendee data.
-     *      Else,
-     *        create a new contact and use that contactId (source = "synced from EventBrite")
-     *      Update the linked Participant status to 'removed in EB'
-     *      Create a new Participant record contactId for this event; use this ParticipantId.
-     *  Else,
-     *    create a new contact and use that contactId (source = "synced from EventBrite")
-     *    create a new participant record
-     *  Create/update Participant/Attendee link using ParticipantId with the latest Attendee data.
-     *  Now we should know the contactId, and Contact record has been updated; we also know the ParticipantId and Participant record has been updated.
-     *  Update any configured custom fields.
-     */
-
-    $linkedParticipantId = $linkId = $linkedContactId = NULL;
-    $contactParams = array(
+  public function contactParams() {
+    return array(
       'contact_type' => 'Individual',
       'first_name' => $this->attendee['profile']['first_name'],
       'last_name' => $this->attendee['profile']['last_name'],
       'email' => $this->attendee['profile']['email'],
     );
+  }
 
-    // Start with a collection of contacts matching the latest Attendee data, per the Contact.duplicatecheck API;
+  /**
+   * Returns a list of contacts matching this attendee's name and email.
+   */
+  public function matchingContacts() {
+    $contactParams = $this->contactParams();
     $result = _eventbrite_civicrmapi('Contact', 'duplicatecheck', array(
-      'match' => $contactParams,
+      'match' => $this->contactParams(),
     ), "Processing Attendee {$this->entityId}.");
     $duplicateCheckContactIds = array_keys($result['values']);
+    return $duplicateCheckContactIds;
+  }
 
+  public function setCiviEventIdForAttendee() {
+    $this->eventId = _eventbrite_civicrmapi('EventbriteLink', 'getValue', array(
+      'eb_entity_type' => 'Event',
+      'civicrm_entity_type' => 'Event',
+      'eb_entity_id' => CRM_Utils_Array::value('event_id', $this->attendee),
+      'return' => 'civicrm_entity_id',
+    ), "Processing Attendee {$this->entityId}, attempting to get linked event for attendee.");
+
+    if (!$this->eventId) {
+      CRM_Eventbrite_BAO_EventbriteLog::create(array(
+        'message' => "Could not find EventbriteLink record 'Event' for order {$this->entityId} with 'event_id': " . CRM_Utils_Array::value('event_id', $this->order) . "; skipping Order. In method " . __METHOD__ . ", file " . __FILE__ . ", line " . __LINE__,
+        'message_type_id' => CRM_Eventbrite_BAO_EventbriteLog::MESSAGE_TYPE_ID_GENERAL,
+      ));
+    } else {
+      $this->event = _eventbrite_civicrmapi('Event', 'getSingle', array(
+        'id' => $this->eventId,
+      ), "Processing Order {$this->entityId}, attempting to get the CiviCRM Event for this order.");
+    }
+  }
+
+  public function getExistingAttendeeLink() {
     // Also start with a Participant linked to the Attendee ID, if any.
     $linkParams = array(
       'eb_entity_type' => 'Attendee',
@@ -91,59 +84,145 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
       'api.Participant.get' => ['id' => '$value.civicrm_entity_id'],
     );
     $link = _eventbrite_civicrmapi('EventbriteLink', 'get', $linkParams, "Processing Attendee {$this->entityId}, attempting to get linked Participant.");
-    $linkId = CRM_Utils_Array::value('id', $link);
+    $this->linkId = CRM_Utils_Array::value('id', $link);
     if (!empty($link['values'])) {
       $linkedParticipantId = CRM_Utils_Array::value('civicrm_entity_id', $link['values'][0]);
       $linkedContactId = $link['values'][0]['api.Participant.get']['values'][0]['contact_id'];
+      return [$linkedParticipantId, $linkedContactId];
+    } else {
+      return [null, null];
+    }
+  }
+
+  public function process() {
+    $this->setCiviEventIdForAttendee();
+    if (!$this->eventId) {
+      return;
     }
 
-    // If there's a linked participant:
+    if (!self::getRolePerTicketType(CRM_Utils_Array::value('ticket_class_id', $this->attendee))) {
+      print("could not find valid participant role\n");
+      return;
+    }
+
+    $matchingContacts = $this->matchingContacts();
+    list($linkedParticipantId, $linkedContactId) = $this->getExistingAttendeeLink();
+
     if ($linkedParticipantId) {
-      // If that linked participant Contact is in the duplicatecheck collection, it means identifying info (name, email) hasn't changed.
-      if (in_array($linkedContactId, $duplicateCheckContactIds)) {
+      if (in_array($linkedContactId, $matchingContacts)) {
         // use that contactId / participantId.
         $this->contactId = $linkedContactId;
         $this->participantId = $linkedParticipantId;
-        // update that contact with the latest Attendee data.
         $this->updateContact();
-        // update that participant with the latest Attendee data.
-        $this->updateParticipant();
-      }
-      // Else, it means identifying info (name, email) HAS changed; we'll preserve the existing contact, and use (or create) another one with this info.
-      else {
-        // If the duplicatecheck collection contains any contacts,
-        if (!empty($duplicateCheckContactIds)) {
-          // use the lowest ContactId
-          $this->contactId = min($duplicateCheckContactIds);
-          // update that contact with the latest Attendee data.
+        $this->updateParticipantParams();
+      } else {
+        // Else, it means identifying info (name, email) HAS changed;
+        if (!empty($matchingContacts)) {
+          // Use a matched contact if one exists
+          $this->contactId = min($matchingContacts);
+          $this->updateContact();
+        } else {
+          // Otherwise make a new one
           $this->updateContact();
         }
-        else {
-          // create a new contact and use that contactId (source = "synced from EventBrite")
-          $this->updateContact();
-        }
-        // Update the linked Participant status to 'removed in EB'
-        self::setParticipantStatusRemoved($linkedParticipantId);
-        // Create a new Participant record contactId for this event; use this ParticipantId.
-        $this->updateParticipant();
+
+        // remove the previously linked participant
+        print("\nremoving previously linked participant");
+        $this->setParticipantStatusRemoved($linkedParticipantId);
+        $this->updateParticipantParams();
       }
-    }
-    else {
+    } else {
+      print("\nno linked participnat found, adding...");
+      // no linked participant
       // use the lowest duplicatecheck ContactId if any.
-      $this->contactId = empty($duplicateCheckContactIds) ? NULL : min($duplicateCheckContactIds);
+      $this->contactId = empty($matchingContacts) ? NULL : min($matchingContacts);
       $this->updateContact();
-      $this->updateParticipant();
+      $this->updateParticipantParams();
     }
+
+    if (!empty($this->attendee['promotional_code'])) {
+      $this->processPromoCode($this->attendee['promotional_code']);
+    }
+    print("\nabout to call updateParticipant...");
+    $this->updateParticipant();
+    $this->updateParticipantLink();
+    $this->updateCustomFields();
+
+  }
+
+  public function processPromoCode($promoCode) {
+    print("\n in processPromoCode\n");
+    $eb = CRM_Eventbrite_EventbriteApi::singleton();
+
+    $discountCode = $promoCode['code'];
+    $this->discountId = $promoCode['id'];
+    $this->voucherCode = $discountCode;
+    $discountDescription = "Eventbrite Discount $discountCode";
+
+    if (array_key_exists('amount_off', $promoCode)) {
+      $discountDescription .= " ({$promoCode['amount_off']['display']})";
+      $amountOff = $promoCode['amount_off']['major_value'];
+      $ticketClassId = $this->attendee['ticket_class_id'];
+
+      $path = "events/{$this->attendee['event_id']}/ticket_classes/$ticketClassId";
+      $ticketClass = $eb->request($path);
+
+      $this->ticketPrice = $ticketClass['cost']['major_value'];
+      $paidPrice = $this->attendee['costs']['gross']['major_value'];
+      $this->valueUsed = $this->ticketPrice - $paidPrice;
+
+      // update participant fee level
+      $this->participantParams['participant_fee_level'] = $ticketClass['cost']['display'];
+      $this->participantParams['participant_fee_amount'] = $ticketClass['cost']['major_value'];
+    } else {
+      $amountOff = NULL;
+      // TODO add percent off to description
+      $discountDescription .= " ({$promoCode['percent_off']}%)";
+      $this->valueUsed = NULL;
+    }
+
+    $result = _eventbrite_civicrmapi('Activity', 'get', array(
+      'activity_type_id' => 89,
+      EVENTBRITE_DISCOUNT_ID_FIELD => $promoCode['id']
+    ));
+
+    if ($result['count'] > 0) {
+      // update existing discount code
+      $discountCodeParams = array(
+        USED_IN_EVENTBRITE_FIELD => USED_IN_EVENTBRITE,
+
+      );
+    } else {
+      // create new discount code activity
+      $discountCodeParams = array(
+        'activity_type_id' => 89,
+        CODE_FIELD => $discountCode, 
+        'status_id' => 'Completed',
+        'source_contact_id' => 2,
+        'target_id' => $this->contactId,
+        'subject' => "Eventbrite Discount $discountCode",
+        CREDIT_AMOUNT_FIELD => $amountOff,
+        EVENTBRITE_DISCOUNT_ID_FIELD => $promoCode['id'],
+        USED_IN_EVENTBRITE_FIELD => USED_IN_EVENTBRITE,
+        VALUE_USED_FIELD => $this->valueUsed,
+      );
+
+      print("\nabout to create activity");
+      var_dump($discountCodeParams);
+      $result = _eventbrite_civicrmapi('Activity', 'create', $discountCodeParams);
+      var_dump($result);
+    }
+  }
+
+  public function updateParticipantLink() {
     // Create a new Participant/Attendee link using ParticipantId with the latest Attendee data.
     $link = _eventbrite_civicrmapi('EventbriteLink', 'create', array(
-      'id' => $linkId,
+      'id' => $this->linkId,
       'eb_entity_type' => 'Attendee',
       'civicrm_entity_type' => 'Participant',
       'eb_entity_id' => $this->entityId,
       'civicrm_entity_id' => $this->participantId,
     ), "Processing Attendee {$this->entityId}, attempting to create/update Attendee/Participant link.");
-    // Now we should know the contactId, and Contact record has been updated; we also know the ParticipantId and Participant record has been updated.
-    $this->updateCustomFields();
   }
 
   private function updateContact() {
@@ -164,30 +243,50 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
     $this->updateContactPhone('home', CRM_Utils_Array::value('home_phone', $this->attendee['profile']));
   }
 
-  private function updateParticipant() {
+  private function updateParticipantParams() {
     $roleId = self::getRolePerTicketType(CRM_Utils_Array::value('ticket_class_id', $this->attendee));
 
     // Create/update the participant record.
-    $apiParams = array(
+    $this->participantParams = array(
       'id' => $this->participantId,
       'event_id' => $this->eventId,
       'contact_id' => $this->contactId,
-      'register_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->attendee)),
+      'participant_fee_level' => $this->attendee['costs']['gross']['display'],
+      'participant_fee_amount' => $this->attendee['costs']['gross']['major_value'],
+      'participant_register_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->attendee)),
       'role_id' => $roleId,
       'source' => E::ts('Eventbrite Integration'),
     );
     if (CRM_Utils_Array::value('checked_in', $this->attendee)) {
-      $apiParams['participant_status'] = 'Attended';
+      $this->participantParams['participant_status'] = 'Attended';
     }
     elseif (CRM_Utils_Array::value('cancelled', $this->attendee)) {
-      $apiParams['participant_status'] = 'Cancelled';
+      $this->participantParams['participant_status'] = 'Cancelled';
     }
     else {
-      $apiParams['participant_status'] = 'Registered';
+      $this->participantParams['participant_status'] = 'Registered';
     }
-    $participant = _eventbrite_civicrmapi('Participant', 'create', $apiParams, "Processing Attendee {$this->entityId}, attempting to create/update Participant record.");
+  }
+
+  public function updateParticipant() {
+    print("\nchecking for existing participant...\n");
+    $result = _eventbrite_civicrmapi('Participant', 'get', array(
+      'event_id' => $this->eventId,
+      'contact_id' => $this->contactId
+    ));
+
+    if ($result['count'] == 0) {
+      print("\nabout to create participant with params...\n");
+      var_dump($this->participantParams);
+
+      $participant = _eventbrite_civicrmapi('Participant', 'create', $this->participantParams, 
+        "Processing Attendee {$this->entityId}, attempting to create/update Participant record.");
+    } else {
+      $participant = $result['values'][0];
+    }
 
     $this->participantId = CRM_Utils_Array::value('id', $participant);
+    print("\nparticipant id is {$this->participantId}");
 
     // If participant status is canceled, also cancel the payment record.
     if ($apiParams['participant_status'] == 'Cancelled') {
@@ -242,7 +341,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
 
         }
         if ($supportedLocationTypeId) {
-          if (!self::_addressIsValid($address)) {
+          if (!self::isAddressValid($address)) {
             // This address is poorly formatted or missing important info. Skip it entirely.
             continue;
           }
@@ -315,25 +414,31 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
   }
 
   public static function getRolePerTicketType($ticketClassId, $attendeeId = NULL) {
-    static $roleIds = array();
-    if (!isset($roleIds[$ticketClassId])) {
-      $roleIds[$ticketClassId] = NULL;
-
-      // Get role from ticket class.
-      $role = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
-        'return' => 'civicrm_entity_id',
-        'civicrm_entity_type' => 'ParticipantRole',
-        'eb_entity_type' => 'TicketType',
-        'eb_entity_id' => $ticketClassId,
-        'sequential' => 1,
-      ), "Processing Attendee '{$attendeeId}', attempting to determine configured RoleID for attendee Ticket Type ID " . $ticketClassId);
-
-      if ($role['count']) {
-        $roleIds[$ticketClassId] = CRM_Utils_Array::value('civicrm_entity_id', $role['values'][0]);
-      }
-    }
-    return $roleIds[$ticketClassId];
+    return STUDENT_ROLE;
   }
+
+  //public static function getRolePerTicketType($ticketClassId, $attendeeId = NULL) {
+  //  print("in getRolePerTicketType...\n");
+  //  static $roleIds = array();
+  //  if (!isset($roleIds[$ticketClassId])) {
+  //    $roleIds[$ticketClassId] = NULL;
+
+  //    // Get role from ticket class.
+  //    $role = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
+  //      'return' => 'civicrm_entity_id',
+  //      'civicrm_entity_type' => 'ParticipantRole',
+  //      'eb_entity_type' => 'TicketType',
+  //      'eb_entity_id' => $ticketClassId,
+  //      'sequential' => 1,
+  //    ), "Processing Attendee '{$attendeeId}', attempting to determine configured RoleID for attendee Ticket Type ID " . $ticketClassId);
+
+  //    if ($role['count']) {
+  //      $roleIds[$ticketClassId] = CRM_Utils_Array::value('civicrm_entity_id', $role['values'][0]);
+  //    }
+  //  }
+  //  var_dump($roleIds);
+  //  return $roleIds[$ticketClassId];
+  //}
 
   public static function setParticipantStatusRemoved($participantId) {
     _eventbrite_civicrmapi('participant', 'create', array(
@@ -347,7 +452,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
     $participantPayments = _eventbrite_civicrmapi('participantPayment', 'get', array(
       'participant_id' => $participantId,
     ), "Processing Participant {$participantId}, attempting to get existing contribution.");
-    foreach ($participantPayment['values'] as $value) {
+    foreach ($participantPayments['values'] as $value) {
       _eventbrite_civicrmapi('contribution', 'create', array(
         'id' => $value['contribution_id'],
         'contribution_status_id' => 'cancelled',
@@ -356,14 +461,8 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
   }
 
   private function updateCustomFields() {
-    $parentId = _eventbrite_civicrmapi('EventbriteLink', 'getValue', array(
-      'eb_entity_type' => 'Event',
-      'civicrm_entity_type' => 'Event',
-      'eb_entity_id' => CRM_Utils_Array::value('event_id', $this->attendee),
-      'return' => 'id',
-    ), "Processing Attendee {$this->entityId}, attempting to get eventbrite link ID for event '{$this->eventId}'.");
     $questions = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
-      'parent_id' => $parentId,
+      'parent_id' => $this->eventId,
       'eb_entity_type' => 'Question',
       'civicrm_entity_type' => 'CustomField',
     ), "Processing Attendee {$this->entityId}, attempting to get all custom fields configured for event '{$this->eventId}'.");
@@ -410,13 +509,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
     }
   }
 
-  public static function _addressIsValid($address) {
-    if (empty(CRM_Utils_Array::value('address_1', $address))) {
-      // This address is missing the street component, so it's not valid.
-      // Reference: https://github.com/twomice/com.joineryhq.eventbrite/issues/7
-      return FALSE;
-    }
-    return TRUE;
+  private static function isAddressValid($address) {
+    return (!empty(CRM_Utils_Array::value('address_1', $address)));
   }
-
 }

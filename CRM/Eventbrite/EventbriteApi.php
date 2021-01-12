@@ -55,7 +55,7 @@ class CRM_Eventbrite_EventbriteApi {
     return self::$_singleton;
   }
 
-  public function requestOptions($body = array(), $expand = array(), $method='GET') {
+  public function requestOptions($body = array(), $method='GET') {
     $options = array(
       'http' => array(
         'method' => $method,
@@ -71,12 +71,19 @@ class CRM_Eventbrite_EventbriteApi {
     return $options;
   }
 
-  public function ebUrl($path, $expand = array()) {
+  public function ebUrl($path, $opts = array(), $expand = array()) {
     $path = '/' . trim($path, '/') . '/';
-    $url = self::EVENTBRITE_APIv3_URL . $path . '?token=' . $this->token;
+
+
+    $opts['token'] = $this->token;
+
     if (!empty($expand)) {
-      $url .= '&expand=' . implode(',', $expand);
+      $opts['expand'] = implode(',', $expand);
     }
+    $query = http_build_query($opts);
+
+    $url = self::EVENTBRITE_APIv3_URL . $path . '?' . $query;
+    print("url is $url");
     return $url;
   }
 
@@ -156,10 +163,10 @@ class CRM_Eventbrite_EventbriteApi {
    * @param string $method HTTP verb: GET, POST, etc.
    * @return array
    */
-  public function request($path, $body = array(), $expand = array(), $method = 'GET') {
+  public function request($path, $body = array(), $opts = array(), $expand = array(), $method = 'GET') {
     // prepare and send request
-    $options = $this->requestOptions($body, $expand, $method);
-    $url = $this->ebUrl($path, $expand);
+    $options = $this->requestOptions($body, $method);
+    $url = $this->ebUrl($path, $opts, $expand);
     $context = stream_context_create($options);
     $result = @file_get_contents($url, FALSE, $context);
 
@@ -169,7 +176,7 @@ class CRM_Eventbrite_EventbriteApi {
   /**
    * Makes an Eventbrite API request, adjusting the provided $path to be at organizations/$orgId/$path
    */
-  public function requestOrg($path, $body = array(), $expand = array(), $method = 'GET') {
-    return $this->request($this->pathForOrg($path), $body, $expand, $method);
+  public function requestOrg($path, $body = array(), $opts = array(), $expand = array(), $method = 'GET') {
+    return $this->request($this->pathForOrg($path), $body, $opts, $expand, $method);
   }
 }

@@ -36,15 +36,20 @@ class CRM_Eventbrite_WebhookProcessor {
     $pathElements = array_reverse(explode('/', $path));
     $this->entityId = $pathElements[0];
     $this->entityType = $pathElements[1];
+
+    $this->path = implode("/", array_slice(explode('/', $path), 2));
   }
 
   protected function fetchEntity($additionalPath = NULL, $expansions = array()) {
+    print("\nin fetchEntity with expansions...");
+    var_dump($expansions);
+
     $eb = CRM_Eventbrite_EventbriteApi::singleton();
-    $path = "{$this->entityType}/{$this->entityId}";
+    $path = $this->path;
     if ($additionalPath) {
       $path .= "/" . $additionalPath;
     }
-    return $eb->request($path, NULL, $expansions);
+    return $eb->request($path, NULL, NULL, $expansions);
   }
 
   protected function generateData($expands = array()) {
@@ -52,7 +57,7 @@ class CRM_Eventbrite_WebhookProcessor {
       return $this->data;
     }
     else {
-      return $this->fetchEntity(NULL, $this->$expansions);
+      return $this->fetchEntity(NULL, $this->expansions);
     }
   }
 

@@ -11,7 +11,7 @@ use CRM_Eventbrite_ExtensionUtil as E;
 /**
  * Implements hook_civicrm_post().
  *
- * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_post
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_post/
  */
 function eventbrite_civicrm_post($op, $objectName, $objectId, &$objectRef) {
   if ($op == 'delete') {
@@ -36,7 +36,7 @@ function eventbrite_civicrm_post($op, $objectName, $objectId, &$objectRef) {
 /**
  * Implements hook_civicrm_pageRun().
  *
- * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_pageRun
+ * @link https://docs.civicrm.org/dev/en/latest/hooks/hook_civicrm_pageRun/
  */
 function eventbrite_civicrm_pageRun(&$page) {
   // If permission and configs are right, display EventbriteLink data for certain entities.
@@ -54,7 +54,7 @@ function eventbrite_civicrm_pageRun(&$page) {
     if ($entity = CRM_Utils_Array::value($pageName, $entityPerPage)) {
       $ebToken = _eventbrite_civicrmapi('Setting', 'getvalue', array('name' => "eventbrite_api_token"));
       switch ($entity) {
-        case 'contact':
+        case 'xcontact':
           $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
             'civicrm_entity_type' => 'event',
             'eb_entity_type' => 'event',
@@ -84,7 +84,7 @@ function eventbrite_civicrm_pageRun(&$page) {
           }
 
           if (!empty($participantAttendees)) {
-            $msg = E::ts('This contact is linked to Eventbrite Attendees throug participant records:') . '<ul>';
+            $msg = E::ts('This contact is linked to Eventbrite Attendees through participant records:') . '<ul>';
             foreach ($participantAttendees as $participantId => $attendeeId) {
               $tsParams = array(
                 '1' => $participantId,
@@ -99,7 +99,7 @@ function eventbrite_civicrm_pageRun(&$page) {
           }
           break;
 
-        case 'participant':
+        case 'xparticipant':
           if ($page->_id) {
             $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
               'civicrm_entity_type' => 'participant',
@@ -119,7 +119,7 @@ function eventbrite_civicrm_pageRun(&$page) {
           }
           break;
 
-        case 'contribution':
+        case 'xcontribution':
           if ($page->_id) {
             $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
               'civicrm_entity_type' => 'contribution',
@@ -374,7 +374,7 @@ function _eventbrite_log_api_error(CiviCRM_API3_Exception $e, $entity, $action, 
  * @return Array result of civicrm_api3()
  * @throws CiviCRM_API3_Exception
  */
-function _eventbrite_civicrmapi($entity, $action, $params, $contextMessage = NULL, $silence_errors = TRUE) {
+function _eventbrite_civicrmapi($entity, $action, $params, $contextMessage = NULL, $silence_errors = FALSE) {
   try {
     $result = civicrm_api3($entity, $action, $params);
   }

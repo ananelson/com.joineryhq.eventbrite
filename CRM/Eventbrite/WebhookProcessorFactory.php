@@ -27,7 +27,7 @@ class CRM_Eventbrite_WebhookProcessorFactory {
       case 'event.created':
       case 'event.updated':
         if ($autocreateEvents) {
-          $processor = new CRM_Eventbrite_WebhookProcessor_Event($data);
+          $processor = new CRM_Eventbrite_WebhookProcessor_BATSEvent($data);
         } else {
           // ignore event related hooks
           $processor = FALSE;

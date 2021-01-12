@@ -130,7 +130,7 @@ class CRM_Eventbrite_Page_Manage_Fields extends CRM_Core_Page_Basic {
 
     // Get and assign eb event title
     $eb = CRM_Eventbrite_EventbriteApi::singleton();
-    $result = $eb->requestOrg("events/{$this->ebEventId}");
+    $result = $eb->request("events/{$this->ebEventId}");
     $eventTitle = $result['name']['text'];
     $this->assign('eventTitle', $eventTitle);
 
@@ -170,7 +170,7 @@ class CRM_Eventbrite_Page_Manage_Fields extends CRM_Core_Page_Basic {
 
     if (empty($this->ebFields[$fieldId])) {
       $eb = CRM_Eventbrite_EventbriteApi::singleton();
-      $result = $eb->requestOrg("events/{$this->ebEventId}/questions/{$fieldId}");
+      $result = $eb->request("events/{$this->ebEventId}/questions/{$fieldId}");
       $this->ebFields[$fieldId] = $result['question']['text'];
     }
 
