@@ -42,6 +42,74 @@ New settings for autoimport events will not be visible until you
 
 ```drush cvapi System.flush```
 
+## Extending
+
+This extension implements some Symfony hooks to allow you to customize its
+behavior for how your organization uses Eventbrite.
+
+#### DataLoaded
+
+Fired after Processor is initialized and data is loaded. This Event has same
+name regardless of data type of subject.
+
+### Event
+
+#### EventParamsSet
+
+After the Eventbrite Event information is used to create the civiEventParams
+array, the EventParamsSet event provides an opportunity to modify
+civiEventParams before events are created/modified.
+
+#### FindExistingCiviEvent
+
+Once an Event is correctly set up, the EventbriteLink table will store a link
+between the Eventbrite Event and the corresponding Civi Event. You can use this
+Symfony Event to assign a Civi event to the processor's $existingEvent variable
+and this event will then be linked.
+
+#### BeforeUpdateExistingCiviEvent
+
+By default events are updated.
+
+You can choose to not update an existing event by setting
+$processor->doUpdateCiviEvent to false in your handler for
+BeforeUpdateExistingCiviEvent.
+
+#### AfterUpdateExistingCiviEvent
+
+You can do custom update code in your handler for
+BeforeUpdateExistingCiviEvent, you can also do further processing in
+AfterUpdateExistingCiviEvent. This runs no matter what, you can always make use
+of $this->doUpdateCiviEvent in your handler to restrict this to run only if the
+event was updated.
+
+### Order
+
+#### OrderAttendeesListSet
+
+The setOrderAttendeesList() method will initialize a list of valid
+orderAttendees which is used in subsequent processing. By default it includes
+all attendees with a valid ticket type. This event allows you to customize this
+behavior.
+
+#### FeesSetup
+
+If you have additional initialization of fee-related accumulator variables, you
+can do so here.
+
+#### ProcessCurrentAttendeeFees
+
+This event is called for each order attendee after attendee fees have been added.
+
+#### ContributionParamsAssigned
+
+Contribution parameters are assigned to $processor->contributionParams and these
+can be modified before contribution is created/updated.
+
+#### PaymentParamsAssigned
+
+Payment parameters are assigned to $processor->proposedPayments and this array
+can then be modified, or cleared if no payments should be created.
 
 ## Support
 ![screenshot](/images/joinery-logo.png)

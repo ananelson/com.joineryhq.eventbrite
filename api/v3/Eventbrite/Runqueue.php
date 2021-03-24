@@ -36,13 +36,8 @@ function civicrm_api3_eventbrite_Runqueue($params) {
 
   $processedRows = $errorRows = $processedEntities = $duplicateRows = array();
   foreach ($result['values'] as $value) {
-    var_dump($value);
-
     try {
-      print("\nin try block, attemtping to create processor...");
       $processor = CRM_Eventbrite_WebhookProcessorFactory::create(CRM_Utils_Array::value('message', $value));
-      print("\nprocessor created");
-      var_dump($processor);
 
       if ($processor !== FALSE) {
         $entityIndentifier = $processor->getEntityIdentifier();
@@ -65,8 +60,6 @@ function civicrm_api3_eventbrite_Runqueue($params) {
       }
     }
     catch (CRM_Exception $e) {
-      print("CRM exception");
-      print($e->getMessage());
       $errorRows[$value['id']] = $e->getMessage();
     }
   }

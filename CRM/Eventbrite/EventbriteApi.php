@@ -83,7 +83,6 @@ class CRM_Eventbrite_EventbriteApi {
     $query = http_build_query($opts);
 
     $url = self::EVENTBRITE_APIv3_URL . $path . '?' . $query;
-    print("url is $url");
     return $url;
   }
 
@@ -177,6 +176,10 @@ class CRM_Eventbrite_EventbriteApi {
    * Makes an Eventbrite API request, adjusting the provided $path to be at organizations/$orgId/$path
    */
   public function requestOrg($path, $body = array(), $opts = array(), $expand = array(), $method = 'GET') {
+      print("\nin requestOrg with path $path");
+      print("\nbody is ...\n");
+      var_dump($body);
+
     return $this->request($this->pathForOrg($path), $body, $opts, $expand, $method);
   }
 }

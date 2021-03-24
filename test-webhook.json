@@ -1,0 +1,10 @@
+{
+  "api_url": "https://www.eventbriteapi.com/v3/events/120468477459",
+  "config": {
+    "action": "create.event",
+    "endpoint_url": "https://yes.improv.org/civicrm/eventbrite/webhook",
+    "user_id": "82924436",
+    "webhook_id": "5439762"
+  }
+}
+

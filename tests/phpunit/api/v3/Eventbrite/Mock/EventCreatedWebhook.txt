@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+
+{
+  "api_url": "https://www.eventbriteapi.com/{api-endpoint-to-fetch-object-details}/",
+  "config": {
+    "action": "test",
+    "endpoint_url": "https://civi.example.org/civicrm/eventbrite/webhook",
+    "user_id": "12345",
+    "webhook_id": "54321"
+  }
+}

@@ -33,6 +33,6 @@ class api_v3_Eventbrite_EventbriteApiTest extends api_v3_Eventbrite_TestCase {
   public function testWebhooks() {
     $httpResponse = $this->getMockHttpResponse('Webhooks.txt');
     $response = $this->eb->handleEventbriteResponse($httpResponse->getBody()->getContents());
-    $this->assertCount(3, $response['webhooks']['actions']);
+    $this->assertCount(3, $response['webhooks'][0]['actions']);
   }
 }

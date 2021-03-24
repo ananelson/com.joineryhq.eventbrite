@@ -1,15 +1,15 @@
 <?php
 
 use CRM_Eventbrite_ExtensionUtil as E;
+use Symfony\Component\EventDispatcher\GenericEvent;
 
 /**
  * Processor for Eventbrite webhook messages.
  */
 class CRM_Eventbrite_WebhookProcessor {
-
   protected $data = array();
   private $entityType;
-  protected $entityId;
+  public $entityId;
 
   /**
    * Initialize the processor.
@@ -18,11 +18,26 @@ class CRM_Eventbrite_WebhookProcessor {
    *  OR Eventbrite entity as received from Eventbrite API.
    */
   public function __construct($data) {
+    \CRM_Core_Error::debug_log_message("in _construct for processor");
     // webhook payload
     $this->data = $data;
     $this->setEntityIdentifiers();
     // fetch the entity's actual data (if not included in webhook payload)
     $this->loadData();
+    $this->dispatchSymfonyEvent("DataLoaded");
+  }
+
+  /**
+   * Dispatch a Symfony GenericEvent with this Civi Event Webhook Processor as subject
+   * to allow other extensions to customize aspects of behavior.
+   */
+  protected function dispatchSymfonyEvent($eventName) {
+    \CRM_Core_Error::debug_log_message("in dispatchSymfonyEvent");
+    $symfonyEvent = new GenericEvent($this);
+    $qualifiedEventName = "eventbrite.processor.$eventName";
+    \CRM_Core_Error::debug_log_message("about to dispatch event $qualifiedEventName");
+    // See https://lab.civicrm.org/dev/core/-/issues/2316 re Symfony 4.3 compat issues
+    Civi::dispatcher()->dispatch($qualifiedEventName, $symfonyEvent);
   }
 
   private function setEntityIdentifiers() {
@@ -41,9 +56,6 @@ class CRM_Eventbrite_WebhookProcessor {
   }
 
   protected function fetchEntity($additionalPath = NULL, $expansions = array()) {
-    print("\nin fetchEntity with expansions...");
-    var_dump($expansions);
-
     $eb = CRM_Eventbrite_EventbriteApi::singleton();
     $path = $this->path;
     if ($additionalPath) {
@@ -62,7 +74,6 @@ class CRM_Eventbrite_WebhookProcessor {
   }
 
   public function process() {
-
   }
 
   public function getEntityIdentifier() {

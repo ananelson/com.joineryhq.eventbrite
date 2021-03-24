@@ -2,13 +2,8 @@
 
 use CRM_Eventbrite_ExtensionUtil as E;
 
-const IS_CLASS_CANCELLED_FIELD = 'custom_154';
-const PAYPAL_PAYMENT_METHOD = 10;
-const PAYPAL_FIXED = 0.30;
-const PAYPAL_PERCENT = 0.022;
-
-const SCHOLARSHIP_CREDIT_PAYMENT_METHOD = 11;
-const VOUCHER_CREDIT_PAYMENT_METHOD = 7;
+const DEDUPE_RULE_ID = 1;
+const DEFAULT_PAYMENT_PROCESSOR = 1;
 
 /**
  * Class for processing Eventbrite 'Order' webhook events.
@@ -17,21 +12,24 @@ const VOUCHER_CREDIT_PAYMENT_METHOD = 7;
 class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProcessor {
 
   public $expansions = array('attendees', 'answers', 'promotional_code');
-  private $order = NULL;
-  private $eventId = NULL;
-  private $event = NULL;
+  public $eventId = NULL;
+  public $event = NULL;
+  public $order = NULL;
 
   protected function loadData() {
     $this->order = $this->generateData();
   }
 
+  /**
+   * Set the eventId and event attributes.
+   */
   public function setCiviEventIdForOrder() {
-    $this->eventId = _eventbrite_civicrmapi('EventbriteLink', 'getValue', array(
+    $this->eventId = _eventbrite_civicrmapi('EventbriteLink', 'getValue', [
       'eb_entity_type' => 'Event',
       'civicrm_entity_type' => 'Event',
       'eb_entity_id' => CRM_Utils_Array::value('event_id', $this->order),
       'return' => 'civicrm_entity_id',
-    ), "Processing Order {$this->entityId}, attempting to get linked event for order.");
+    ], "Processing Order {$this->entityId}, attempting to get linked event for order.");
 
     if (!$this->eventId) {
       CRM_Eventbrite_BAO_EventbriteLog::create(array(
@@ -42,19 +40,23 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       $this->event = _eventbrite_civicrmapi('Event', 'getSingle', array(
         'id' => $this->eventId,
       ), "Processing Order {$this->entityId}, attempting to get the CiviCRM Event for this order.");
+      \CRM_Core_Error::debug_var("event", $this->event);
     }
   }
 
-  public function orderAttendeesWithValidTicketTypes() {
-    // Determine a list of OrderAttendeeIds, for Attendees with valid Ticket Types.
-    $orderAttendees = array();
+  /**
+   * Populates the $orderAttendees list with attendees having a valid ticket type.
+   */
+  public function setOrderAttendeesList() {
+    $this->orderAttendees = array();
 
     foreach ($this->order['attendees'] as $attendee) {
-      if (CRM_Eventbrite_WebhookProcessor_Attendee::getRolePerTicketType(CRM_Utils_Array::value('ticket_class_id', $attendee))) {
-        $orderAttendees[$attendee['id']] = $attendee;
+      $ticket_class_id = CRM_Utils_Array::value('ticket_class_id', $attendee);
+      $isValidTicketType = !is_null(CRM_Eventbrite_WebhookProcessor_Attendee::readTicketType($ticket_class_id));
+      if ($isValidTicketType) {
+        $this->orderAttendees[$attendee['id']] = $attendee;
       }
     }
-    return $orderAttendees;
   }
 
   public function getExistingPrimaryParticipantId() {
@@ -161,43 +163,37 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     return CRM_Utils_Array::value('is_monetary', $this->event);
   }
 
-  public function updateContribution($grossSum, $feeSum, $creditSum, $scholarshipSum) {
-    $isMonetary = $this->isEventMonetary();
-    if (!$isMonetary) {
-      return;
-    }
-    if ($grossSum == 0) {
-      return;
-    }
+  public function assignContributionParams() {
+    $this->financialTypeId = CRM_Utils_Array::value('financial_type_id', $this->event);
 
-    $financialTypeId = CRM_Utils_Array::value('financial_type_id', $this->event);
-
-    // original logic
-    $isCheckPayment = $this->order['costs']['eventbrite_fee']['value']
+    $this->isCheckPayment = $this->order['costs']['eventbrite_fee']['value']
       && $this->order['costs']['base_price']['value']
       && !$this->order['costs']['payment_fee']['value'];
 
-    // TODO make this a setting
-    $isCheckPayment = false;
-
-    $contactId = _eventbrite_civicrmapi('participant', 'getValue', array(
-      'return' => 'contact_id',
-      'id' => $this->primaryParticipantId,
-    ), "Processing Order {$this->entityId}, attempting to get Contact ID for order primary participant '$this->primaryParticipantId'.");
-
     // Define contribution params based on Order.costs
-    $contributionParams = array(
+    $this->contributionParams = array(
       'receive_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->order)),
-      'total_amount' => $grossSum,
-      'fee_amount' => $feeSum,
-      'financial_type_id' => $financialTypeId,
-      'payment_instrument_id' => 'Credit Card',
+      'total_amount' => $this->grossSum,
+      'fee_amount' => $this->feesSum,
+      'financial_type_id' => $this->financialTypeId,
       'contribution_status_id' => 'Pending',
-      'source' => E::ts('Eventbrite Integration'),
-      'contact_id' => $contactId,
+      'source' => E::ts("Eventbrite Order {$this->entityId}"),
+      'contact_id' => $this->orderPurchaserContact['id'],
     );
 
-    // Determine which contribution is linked to this order, if any.
+    if ($this->isCheckPayment) {
+      $this->contributionParams['payment_instrument_id'] = 'Check';
+    } else {
+      $this->contributionParams['payment_instrument_id'] = 'Credit Card';
+    }
+  }
+
+  /**
+   * Updates $this->contributionParams with existing contrib ID and status if found.
+   *
+   */
+  public function assignExistingContribution() {
+    // Determine which Civi contribution is linked to this EB order, if any.
     $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'eb_entity_type' => 'Order',
       'civicrm_entity_type' => 'Contribution',
@@ -206,126 +202,188 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     ), "Processing Order {$this->entityId}, attempting to get linked contribution for this order, if any.");
     $linkId = CRM_Utils_Array::value('id', $link);
 
+    $this->existingPayments = null;
+    $this->existingPaymentsTotalValue = 0;
+
     if ($linkId) {
       $linkedContributionId = CRM_Utils_Array::value('civicrm_entity_id', $link['values'][0]);
       $result = _eventbrite_civicrmapi('Contribution', 'get', array('id' => $linkedContributionId));
       if ($result['count'] == 0) {
-        print("\ncould not find linked contribution with ID $linkedContributionId, removing link\n");
+        // Existing link points to nothing, remove it.
         _eventbrite_civicrmapi('EventbriteLink', 'delete', array('id' => $linkId));
         unset($linkId);
         unset($linkedContributionId);
       } else {
-        $contributionParams['id'] = $linkedContributionId;
-        $contributionParams['contribution_status_id'] = $result['values'][0]['contribution_status_id'];
+        // Link points to valid contribution.
+        $this->contributionParams['id'] = $linkedContributionId;
+        $this->contributionParams['contribution_status_id'] = $result['values'][0]['contribution_status_id'];
+        $this->contributionParams['payment_instrument_id'] = $result['values'][0]['payment_instrument_id'];
+        $this->isExistingContribution = true;
       }
     }
+  }
 
-    $orderStatus = CRM_Utils_Array::value('status', $this->order);
-
-    $isOrderCancelled = in_array($orderStatus, array('refunded', 'cancelled', 'deleted'));
-    $isClassCancelled = $this->event[IS_CLASS_CANCELLED_FIELD];
-    $isCancelled = $isOrderCancelled or $isClassCancelled;
-
-    if ($isCancelled) {
-      // If order status is 'deleted' or 'cancelled'/'refunded', contribution status = cancelled.
-      $contributionParams['contribution_status_id'] = 'Cancelled';
-    }
-    elseif ($isCheckPayment) {
-      // A pay_by_check order must have base amount > 0, eventbrite fee > 0,
-      // and payment_fee = 0.
-      //
-      // However, it is possible to refund a CC-paid order down so low that these
-      // conditions are met; in this case the order will appear to be pay_by_check,
-      // and if the contribution has not yet beeen created by this point, it
-      // will be created with a 'Pending' status. This seems fairly unlikely,
-      // as you'd need an unusual sequence of events:
-      // - order is placed and paid with CC
-      // - order is NOT synced to CiviCRM, either because of some unexpected
-      //   delay, or because the following steps just happen too quickly.
-      // - order is refunded to an amount smaller than the EB fees.
-      // - order is finally synced for the first time to CiviCRM.
-      //
-      if (empty($contributionParams['id'])) {
-        // And, we only want to do this if it's a newly created contribution;
-        // there's really no time when we'd be setting an existing contrib
-        // to 'pending'.
-        $contributionParams['payment_instrument_id'] = 'Check';
-      }
-    }
-
-    $isExistingContribution = array_key_exists('id', $contributionParams);
-
+  public function createOrUpdateContribution() {
+    \CRM_Core_Error::debug_log_message("in createOrUpdateContribution");
     $msg = "Processing Order {$this->entityId}, attempting to create/update contribution record.";
-    $contribution = _eventbrite_civicrmapi('Contribution', 'create', $contributionParams, $msg);
-    $contributionId = array_keys($contribution['values'])[0];
+    $result = _eventbrite_civicrmapi('Contribution', 'create', $this->contributionParams, $msg);
+    $this->contribution = array_values($result['values'])[0];
 
-    print("\nContribution status is\n");
-    var_dump($contribution['contribution_status_id']);
-
-    if (!isset($contribution['contribution_status_id']) or $contribution['contribution_status_id'] == 'Pending') {
-      $creditCardPaymentAmount = $grossSum - $creditSum;
-
-      if ($creditCardPaymentAmount > 0) {
-        $paymentParams = array(
-          'contribution_id' => $contributionId,
-          'trxn_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->order)),
-          'payment_instrument_id' => PAYPAL_PAYMENT_METHOD,
-          'total_amount' => $grossSum,
-          'fee_amount' => $feeSum,
-          'net_amount' => $grossSum - $feeSum,
-          'is_send_contribution_notification' => 0
-        );
-
-        $payment = _eventbrite_civicrmapi('Payment', 'create', $paymentParams);
-      }
-
-      if ($creditSum > 0) {
-        $paymentParams = array(
-          'contribution_id' => $contributionId,
-          'trxn_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->order)),
-          'payment_instrument_id' => VOUCHER_CREDIT_PAYMENT_METHOD,
-          'trxn_id' => $this->discountId,
-          'check_number' => $this->voucherCode,
-          'total_amount' => $creditSum,
-          'fee_amount' => 0,
-          'net_amount' => $creditSum,
-          'is_send_contribution_notification' => 0
-        );
-        $payment = _eventbrite_civicrmapi('Payment', 'create', $paymentParams);
-      }
-    }
-
-    // TODO update payment if class is subsequently cancelled
+    \CRM_Core_Error::debug_var("participant", $this->primaryParticipantId);
 
     // Link primary participant to contribution as participantPayment.
     $participantPayment = _eventbrite_civicrmapi('ParticipantPayment', 'create', array(
       'participant_id' => $this->primaryParticipantId,
-      'contribution_id' => $contributionId
+      'contribution_id' => $this->contribution['id']
     ));
 
     // Create new link between Order and ContributionId.
     _eventbrite_civicrmapi('EventbriteLink', 'create', array(
       'id' => $linkId,
       'civicrm_entity_type' => 'Contribution',
-      'civicrm_entity_id' => $contributionId,
+      'civicrm_entity_id' => $this->contribution['id'],
       'eb_entity_type' => 'Order',
       'eb_entity_id' => $this->entityId,
     ), "Processing Order {$this->entityId}, attempting to create/update Order/Contribution link.");
   }
 
-  public function process() {
-    $this->setCiviEventIdForOrder();
-    if (!$this->eventId) {
+  public function primaryPaymentParams() {
+    $paymentAmount = $this->grossSum;
+    $fees = $this->feesSum;
+    if ($paymentAmount > 0) {
+      return array(
+        'contribution_id' => $this->contribution['id'],
+        'trxn_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->order)),
+        'payment_processor_id' => DEFAULT_PAYMENT_PROCESSOR,
+        'total_amount' => $paymentAmount,
+        'fee_amount' => $fees,
+        'net_amount' => $paymentAmount - $fees,
+        'is_send_contribution_notification' => 0
+      );
+    }
+  }
+
+  public function assignPaymentParams() {
+    $this->proposedPayments = [];
+    $this->proposedPayments[] = $this->primaryPaymentParams();
+  }
+
+  public function assignExistingPayments() {
+    // check for existing payments
+    $result = civicrm_api3('Payment', 'get', [
+      'sequential' => 1,
+      'entity_id' => $this->contribution['id'],
+    ]);
+
+    \CRM_Core_Error::debug_var("payment result", $result);
+    if ($result['count'] > 0) {
+      $this->existingPayments = $result['values'];
+      foreach ($this->existingPayments as $paymentId=>$paymentInfo) {
+        \CRM_Core_Error::debug_var("existing pmt", $paymentInfo);
+        $this->existingPaymentsTotalValue += $paymentInfo['total_amount'];
+      }
+    }
+    \CRM_Core_Error::debug_log_message("existing payments value {$this->existingPaymentsTotalValue}");
+  }
+
+  /**
+   *
+   */
+  public function applyPayments() {
+    \CRM_Core_Error::debug_log_message("in applyPayments");
+
+    $this->assignExistingPayments();
+    $this->assignPaymentParams();
+    $this->dispatchSymfonyEvent("PaymentParamsAssigned");
+
+    \CRM_Core_Error::debug_var("contribution", $this->contribution);
+    
+    $this->payments = array();
+    \CRM_Core_Error::debug_var("proposed payments", $this->proposedPayments);
+    foreach ($this->proposedPayments as $paymentInfo) {
+      \CRM_Core_Error::debug_var("paymentInfo", $paymentInfo);
+      $payment = _eventbrite_civicrmapi('Payment', 'create', $paymentInfo);
+      \CRM_Core_Error::debug_var("payment", $payment);
+      $this->payments[] = $payment;
+    }
+  }
+
+  public function cancelOrder() {
+      $cancel_date = CRM_Utils_Date::processDate(CRM_Utils_Array::value('changed', $this->order));
+      // marking contribution as cancelled will make a refund on cancel_date
+      $result = _eventbrite_civicrmapi('Contribution', 'update', array(
+        'id' => $contributionId,
+        'contribution_status_id' => 'Refunded',
+        'cancel_date' => $cancel_date // cancel or refund date
+      ));
+
+      // mark attendee status as cancelled
+      foreach ($this->orderParticipantIds as $participantId) {
+        $result = _eventbrite_civicrmapi('Participant', 'create', array(
+          'id' => $participantId,
+          'participant_status' => 'Cancelled'
+        ));
+      }
+  }
+
+  public function updateContribution() {
+    if (!$this->isEventMonetary()) {
+      return;
+    }
+    if ($this->grossSum == 0) {
       return;
     }
 
-    $orderAttendees = $this->orderAttendeesWithValidTicketTypes();
-    if (empty($orderAttendees)) {
-      return;
-    }
+    $this->assignContributionParams();
+    $this->dispatchSymfonyEvent("ContributionParamsAssigned");
 
-    $this->orderAttendeeIds = array_keys($orderAttendees);
-    $primaryAttendeeId = min($this->orderAttendeeIds);
+    $this->assignExistingContribution();
+
+    $orderStatus = CRM_Utils_Array::value('status', $this->order);
+    $this->isOrderCancelled = in_array($orderStatus, array('refunded', 'cancelled'));
+    $this->isOrderDeleted = $orderStatus == 'deleted';
+
+    $this->createOrUpdateContribution();
+    $this->applyPayments();
+
+    if ($this->isOrderCancelled) {
+      $this->cancelOrder();
+    }
+  }
+
+  /*
+      get a Civi contact for the person who placed the order
+      (may or may not be an attendee)
+   */
+  public function getOrderPurchaser() {
+    // TODO unify this with Attendee contact Params()
+    $contactParams =  array(
+      'contact_type' => 'Individual',
+      'first_name' => $this->order['first_name'],
+      'last_name' => $this->order['last_name'],
+      'email' => $this->order['email'],
+    );
+    $result = _eventbrite_civicrmapi('Contact', 'duplicatecheck', array(
+      'dedupe_rule_id' => DEDUPE_RULE_ID,
+      'match' => $contactParams,
+    ));
+    if ($result['count'] > 0) {
+      $contactId = array_keys($result['values'])[0];
+      return _eventbrite_civicrmapi('Contact', 'getsingle', array('id' => $contactId));
+    } else {
+      return  _eventbrite_civicrmapi('Contact', 'create', $contactParams);
+    }
+  }
+
+  /**
+   * Removes any previous participants who are no longer on the order.
+   */
+  public function setPurchaserAndPrimaryAttendee() {
+    // the person who purchased the order need not be an attendee
+    $this->orderPurchaserContact = $this->getOrderPurchaser();
+
+    $this->orderAttendeeIds = array_keys($this->orderAttendees);
+    $this->primaryAttendeeId = min($this->orderAttendeeIds);
 
     // remove any participants previously linked who are no longer part of the order
     $this->primaryParticipantId = $this->getExistingPrimaryParticipantId();
@@ -341,60 +399,77 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
         }
       }
     }
+  }
 
-    // loop over order participants and add them if not already added
+  public function setupFees() {
+    $this->grossSum = 0;
+    $this->feesSum = 0;
+  }
+
+  public function addAttendeeFees($orderAttendee) {
+      // Add to gross and fee totals for this Attendee.
+      $this->grossValue = $orderAttendee['costs']['gross']['major_value'];
+      $this->feesValue = $orderAttendee['costs']['payment_fee']['major_value'];
+
+      $this->grossSum += $this->grossValue;
+      $this->feesSum += $this->grossValue;
+  }
+
+  public function createAttendeeProcessor($orderAttendee) {
+    // Need to create a fake payload to trigger EB API call so promo code will be included
+    $fakePayload = array(
+      "config" =>  ["action" => "attendee.updated"],
+      'api_url' => $orderAttendee['resource_uri']
+    );
+    return new CRM_Eventbrite_WebhookProcessor_Attendee($fakePayload);
+  }
+
+  public function processAttendees() {
     $this->orderParticipantIds = array();
-    $grossSum = $feesSum = $scholarshipSum = $creditSum = 0;
 
-    foreach ($orderAttendees as $orderAttendeeId => $orderAttendee) {
+    foreach ($this->orderAttendees as $orderAttendeeId => $orderAttendee) {
       $orderParticipantId = $this->getExistingAttendeeLink($orderAttendeeId);
 
+      $this->currentAttendeeProcessor = $this->createAttendeeProcessor($orderAttendee);
+
       if (!$orderParticipantId) {
-        // process Attendee (this will create a linked participant)
-        // need to create a fake payload isntead of pass $orderAttendee since
-        // it won't provide promo code data otherwise
-        $fakePayload = array(
-          "config" =>  ["action" => "attendee.updated"],
-          'api_url' => $orderAttendee['resource_uri']
-        );
-        $attendeeProcessor = new CRM_Eventbrite_WebhookProcessor_Attendee($fakePayload);
-        $attendeeProcessor->process();
-        $this->voucherCode = $attendeeProcessor->voucherCode;
-        $this->discountId = $attendeeProcessor->discountId;
-        $orderParticipantId = $attendeeProcessor->participantId;
+        $this->currentAttendeeProcessor->process();
+        $orderParticipantId = $this->currentAttendeeProcessor->participantId;
       }
 
       $this->orderParticipantIds[] = $orderParticipantId;
-      if ($orderAttendeeId == $primaryAttendeeId) {
-        // save the primaryParticipantId for later
+      if ($orderAttendeeId == $this->primaryAttendeeId) {
+        \CRM_Core_Error::debug_var("orderParticipantId", $orderParticipantId);
         $this->primaryParticipantId = $orderParticipantId;
       }
 
-      // Add to gross and fee totals for this Attendee.
-      $grossValue = $orderAttendee['costs']['gross']['major_value'];
-      $ebFee = $orderAttendee['costs']['gross']['major_value'];
-      $pmtFee = $orderAttendee['costs']['payment_fee']['major_value'];
-  
-      if ($attendeeProcessor->valueUsed > 0) {
-        // TODO Figure out if credit or scholarship...
-        $creditSum += $attendeeProcessor->valueUsed;
-      }
-
-      $grossSum += $grossValue;
-      if ($pmtFee == 0.00 and $grossValue > 0.0) {
-        $pmtFee = PAYPAL_FIXED + PAYPAL_PERCENT * $grossValue;
-      }
-
-      // TODO make this a setting - but we don't want EB fees deducted
-      //$feeSum += $orderAttendee['costs']['eventbrite_fee']['major_value'];
-
-      // add credit amount to gross sum (after calculating fees)
-      $grossSum += $creditSum;
-      $feeSum += $pmtFee;
+      $this->addAttendeeFees($orderAttendee);
+      $this->dispatchSymfonyEvent("ProcessCurrentAttendeeFees");
     }
+  }
+
+  public function process() {
+    \CRM_Core_Error::debug_var("order", $this->order);
+    $this->setCiviEventIdForOrder();
+
+    if (!$this->eventId) {
+      return;
+    }
+
+    $this->setOrderAttendeesList();
+    $this->dispatchSymfonyEvent("OrderAttendeesListSet");
+    if (empty($this->orderAttendees)) {
+      return;
+    }
+
+    $this->setupFees();
+    $this->dispatchSymfonyEvent("FeesSetup");
+
+    $this->setPurchaserAndPrimaryAttendee();
+    $this->processAttendees();
 
     $this->updateRegisteredBy();
     $this->updatePrimaryParticipant($existingPrimaryParticipantLinkId);
-    $this->updateContribution($grossSum, $feeSum, $creditSum, $scholarshipSum);
+    $this->updateContribution();
   }
 }

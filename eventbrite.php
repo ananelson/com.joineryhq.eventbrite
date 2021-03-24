@@ -374,7 +374,7 @@ function _eventbrite_log_api_error(CiviCRM_API3_Exception $e, $entity, $action, 
  * @return Array result of civicrm_api3()
  * @throws CiviCRM_API3_Exception
  */
-function _eventbrite_civicrmapi($entity, $action, $params, $contextMessage = NULL, $silence_errors = FALSE) {
+function _eventbrite_civicrmapi($entity, $action, $params, $contextMessage = NULL, $silence_errors = TRUE) {
   try {
     $result = civicrm_api3($entity, $action, $params);
   }
