@@ -59,7 +59,7 @@ class CRM_Eventbrite_EventbriteApi {
     $options = array(
       'http' => array(
         'method' => $method,
-        'header' => "content-type: application/json\r\n",
+        'header' => "Authorization: Bearer {$this->token}\r\n",
         'ignore_errors' => TRUE,
       ),
     );
@@ -73,9 +73,6 @@ class CRM_Eventbrite_EventbriteApi {
 
   public function ebUrl($path, $opts = array(), $expand = array()) {
     $path = '/' . trim($path, '/') . '/';
-
-
-    $opts['token'] = $this->token;
 
     if (!empty($expand)) {
       $opts['expand'] = implode(',', $expand);
@@ -176,10 +173,6 @@ class CRM_Eventbrite_EventbriteApi {
    * Makes an Eventbrite API request, adjusting the provided $path to be at organizations/$orgId/$path
    */
   public function requestOrg($path, $body = array(), $opts = array(), $expand = array(), $method = 'GET') {
-      print("\nin requestOrg with path $path");
-      print("\nbody is ...\n");
-      var_dump($body);
-
     return $this->request($this->pathForOrg($path), $body, $opts, $expand, $method);
   }
 }

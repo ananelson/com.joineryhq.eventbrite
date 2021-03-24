@@ -42,6 +42,12 @@ New settings for autoimport events will not be visible until you
 
 ```drush cvapi System.flush```
 
+## Historical Data
+
+
+drush cvapi EventbriteQueue.populateevents time_filter=current_future
+
+
 ## Extending
 
 This extension implements some Symfony hooks to allow you to customize its

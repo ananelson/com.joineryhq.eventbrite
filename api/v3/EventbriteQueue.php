@@ -58,13 +58,18 @@ function civicrm_api3_eventbrite_queue_populateevents($params) {
   $eb = CRM_Eventbrite_EventbriteApi::singleton();
 
   // filter $params for the ones relevant to EB events API
+  // https://www.eventbrite.com/platform/api#/reference/event/update/list-events-by-organization
   $allowed_eb_params = array(
-    'order_by', // this param DOES NOTHING grrrr eventbrite
-    'status',
-    'time_filter',
-    'page' // use page to paginate
+    'order_by', // start_asc , start_desc , created_asc , created_desc , name_asc , name_desc
+    'status', // draft , live , started , ended , completed , canceled , all
+    'venue_filter', // filter by venue ID
+    'time_filter', // all, current_future, past
+    'page_size', // default is 50
+    'page' // page number for pagination
   );
   $eb_params = array_intersect_key($params, array_flip($allowed_eb_params));
+
+  // TODO implement auto paginate to populate
 
   // fetch list of events from EB API
   $response = $eb->requestOrg('events', NULL, $eb_params);
