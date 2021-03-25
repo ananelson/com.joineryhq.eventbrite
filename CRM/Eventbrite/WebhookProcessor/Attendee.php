@@ -98,6 +98,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
    */
   public function createOrUpdateContactParticipant() {
     list($linkedParticipantId, $linkedContactId) = $this->getExistingParticipantContact();
+
     if ($linkedParticipantId) {
       if (in_array($linkedContactId, $this->matchingContacts)) {
         // use that contactId / participantId.
@@ -109,7 +110,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
         // Else, it means identifying info (name, email) HAS changed;
         if (!empty($this->matchingContacts)) {
           // Use a matched contact if one exists
-          $this->contactId = min($matchingContacts);
+          $this->contactId = min($this->matchingContacts);
           $this->createOrUpdateContact();
         } else {
           // Otherwise make a new one
@@ -123,7 +124,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
     } else {
       // no linked participant
       // use the lowest duplicatecheck ContactId if any.
-      $this->contactId = empty($matchingContacts) ? NULL : min($matchingContacts);
+      $this->contactId = empty($this->matchingContacts) ? NULL : min($this->matchingContacts);
       $this->createOrUpdateContact();
       $this->assignParticipantParams();
     }
