@@ -112,6 +112,10 @@ function civicrm_api3_eventbrite_queue_populateevent($params) {
     "message" => json_encode($fakeWebhookPayload)
   ];
   $result = _eventbrite_civicrmapi('EventbriteQueue', 'create', $queueParams);
+
+    if (!$params['no_orders']) {
+      civicrm_api3_eventbrite_queue_populateorders(array("event_id" => $event_id));
+    }
   return $event_id;
 }
 

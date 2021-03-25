@@ -21,6 +21,7 @@ class CRM_Eventbrite_WebhookProcessor {
     \CRM_Core_Error::debug_log_message("in _construct for processor");
     // webhook payload
     $this->data = $data;
+    \CRM_Core_Error::debug_var("data", $data);
     $this->setEntityIdentifiers();
     // fetch the entity's actual data (if not included in webhook payload)
     $this->loadData();

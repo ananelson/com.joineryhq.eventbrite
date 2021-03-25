@@ -77,9 +77,14 @@ class CRM_Eventbrite_EventbriteApi {
     if (!empty($expand)) {
       $opts['expand'] = implode(',', $expand);
     }
-    $query = http_build_query($opts);
 
-    $url = self::EVENTBRITE_APIv3_URL . $path . '?' . $query;
+    $url = self::EVENTBRITE_APIv3_URL . $path;
+
+    if (!empty($opts)) {
+        $query = http_build_query($opts);
+        $url .= '?' . $query;
+    }
+
     return $url;
   }
 

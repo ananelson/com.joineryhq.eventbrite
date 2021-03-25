@@ -365,7 +365,7 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
       'id' => $participantId,
       'participant_status' => 'Removed_in_EventBrite',
     ), "Processing Participant {$participantId}, attempting to mark participant as 'Removed in Eventbrite'.");
-    self::cancelParticipantPayments($participantId);
+    //self::cancelParticipantPayments($participantId);
   }
 
   //public static function cancelParticipantPayments($participantId) {

@@ -170,11 +170,12 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       && $this->order['costs']['base_price']['value']
       && !$this->order['costs']['payment_fee']['value'];
 
-    // Define contribution params based on Order.costs
+
     $this->contributionParams = array(
       'receive_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->order)),
       'total_amount' => $this->grossSum,
       'fee_amount' => $this->feesSum,
+      'net_amount' => $this->grossSum - $this->feesSum,
       'financial_type_id' => $this->financialTypeId,
       'contribution_status_id' => 'Pending',
       'source' => E::ts("Eventbrite Order {$this->entityId}"),
@@ -248,16 +249,14 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   }
 
   public function primaryPaymentParams() {
-    $paymentAmount = $this->grossSum;
-    $fees = $this->feesSum;
-    if ($paymentAmount > 0) {
+    if ($this->grossSum > 0) {
       return array(
         'contribution_id' => $this->contribution['id'],
         'trxn_date' => CRM_Utils_Date::processDate(CRM_Utils_Array::value('created', $this->order)),
         'payment_processor_id' => DEFAULT_PAYMENT_PROCESSOR,
-        'total_amount' => $paymentAmount,
-        'fee_amount' => $fees,
-        'net_amount' => $paymentAmount - $fees,
+        'total_amount' => $this->grossSum,
+        'fee_amount' => $this->feesSum,
+        'net_amount' => $this->grossSum - $this->feesSum,
         'is_send_contribution_notification' => 0
       );
     }
@@ -266,6 +265,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   public function assignPaymentParams() {
     $this->proposedPayments = [];
     $this->proposedPayments[] = $this->primaryPaymentParams();
+    \CRM_Core_Error::debug_var("proposed payments in assignPaymentParams", $this->proposedPayments);
   }
 
   public function assignExistingPayments() {
@@ -412,7 +412,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       $this->feesValue = $orderAttendee['costs']['payment_fee']['major_value'];
 
       $this->grossSum += $this->grossValue;
-      $this->feesSum += $this->grossValue;
+      $this->feesSum += $this->feesValue;
   }
 
   public function createAttendeeProcessor($orderAttendee) {
