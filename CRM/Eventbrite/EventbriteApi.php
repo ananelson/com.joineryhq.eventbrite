@@ -66,6 +66,7 @@ class CRM_Eventbrite_EventbriteApi {
 
     if ( $method == 'POST' || $method == 'PUT') {
       $options['http']['content'] = json_encode($body);
+      $options['http']['header'] .= "Content-type: application/json\r\n";
     }
 
     return $options;
@@ -81,15 +82,15 @@ class CRM_Eventbrite_EventbriteApi {
     $url = self::EVENTBRITE_APIv3_URL . $path;
 
     if (!empty($opts)) {
-        $query = http_build_query($opts);
-        $url .= '?' . $query;
+      $query = http_build_query($opts);
+      $url .= '?' . $query;
     }
 
     return $url;
   }
 
   public function pathForOrg($path) {
-      return "/organizations/$this->orgId/$path";
+    return "/organizations/$this->orgId/$path";
   }
 
   public function prepareErrorMessage($url, $method, $body, $message = NULL) {
