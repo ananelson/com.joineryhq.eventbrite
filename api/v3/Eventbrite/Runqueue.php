@@ -59,7 +59,7 @@ function civicrm_api3_eventbrite_Runqueue($params) {
         _eventbrite_civicrmapi('EventbriteQueue', 'create', $apiParams);
       }
     }
-    catch (CRM_Exception $e) {
+    catch (CRM_Exception | EventbriteApiError $e) {
       $errorRows[$value['id']] = $e->getMessage();
     }
   }
