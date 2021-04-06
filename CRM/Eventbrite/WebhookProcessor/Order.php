@@ -60,15 +60,18 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   }
 
   public function getExistingPrimaryParticipantId() {
+    \CRM_Core_Error::debug_log_message("in getExistingPrimaryParticipantId");
     $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'eb_entity_type' => 'Order',
-      'civicrm_entity_type' => 'PrimaryParticipant',
       'eb_entity_id' => $this->entityId,
+      'civicrm_entity_type' => 'PrimaryParticipant',
       'sequential' => 1,
       'api.participant.get' => array(
         'id' => '$value.civicrm_entity_id',
       ),
     ), "Processing Order {$this->entityId}, attempting to get linked PrimaryParticipant for the order.");
+
+    \CRM_Core_Error::debug_var("existing primary participant link", $link);
     if ($link['count']) {
       $existingPrimaryParticipantLinkId = $link['id'];
       $existingPrimaryParticipantId = CRM_Utils_Array::value('id', $link['values'][0]['api.participant.get']);
@@ -92,12 +95,14 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
    * Returns a link to the eventbrite attendee ID corresponding to the civi participantID if a link is found
    */ 
   public function getExistingParticipantLink($participantId) {
+    \CRM_Core_Error::debug_log_message("in getExistingParticipantLink");
     $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'civicrm_entity_type' => 'Participant',
       'civicrm_entity_id' => $participantId,
       'eb_entity_type' => 'Attendee',
       'sequential' => 1,
     ), "Processing Order {$this->entityId}, attempting to get Attendee linked to participant '$participantId'.");
+    \CRM_Core_Error::debug_var("existing participant ", $link);
     if ($link['count']) {
       return $link['values'][0]['eb_entity_id'];
     }
@@ -194,6 +199,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
    *
    */
   public function assignExistingContribution() {
+    \CRM_Core_Error::debug_log_message("in assignExistingContribution");
     // Determine which Civi contribution is linked to this EB order, if any.
     $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'eb_entity_type' => 'Order',
@@ -202,15 +208,18 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       'sequential' => 1,
     ), "Processing Order {$this->entityId}, attempting to get linked contribution for this order, if any.");
     $linkId = CRM_Utils_Array::value('id', $link);
+    \CRM_Core_Error::debug_log_message("existing contribution linkid $linkId");
 
     $this->existingPayments = null;
     $this->existingPaymentsTotalValue = 0;
+    $this->existingRefundsTotalValue = 0;
 
     if ($linkId) {
       $linkedContributionId = CRM_Utils_Array::value('civicrm_entity_id', $link['values'][0]);
       $result = _eventbrite_civicrmapi('Contribution', 'get', array('id' => $linkedContributionId));
       if ($result['count'] == 0) {
         // Existing link points to nothing, remove it.
+        \CRM_Core_Error::debug_log_message("existing contribution link no longer valid, remove it");
         _eventbrite_civicrmapi('EventbriteLink', 'delete', array('id' => $linkId));
         unset($linkId);
         unset($linkedContributionId);
@@ -220,6 +229,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
         $this->contributionParams['contribution_status_id'] = $result['values'][0]['contribution_status_id'];
         $this->contributionParams['payment_instrument_id'] = $result['values'][0]['payment_instrument_id'];
         $this->isExistingContribution = true;
+        \CRM_Core_Error::debug_log_message("found existing valid contribution with status {$this->contributionParams['contribution_status_id']}");
       }
     }
   }
@@ -238,14 +248,16 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       'contribution_id' => $this->contribution['id']
     ));
 
-    // Create new link between Order and ContributionId.
-    _eventbrite_civicrmapi('EventbriteLink', 'create', array(
-      'id' => $linkId,
-      'civicrm_entity_type' => 'Contribution',
-      'civicrm_entity_id' => $this->contribution['id'],
-      'eb_entity_type' => 'Order',
-      'eb_entity_id' => $this->entityId,
-    ), "Processing Order {$this->entityId}, attempting to create/update Order/Contribution link.");
+    if (!$this->isExistingContribution) {
+      // Create new link between Order and ContributionId.
+      _eventbrite_civicrmapi('EventbriteLink', 'create', array(
+        'id' => $linkId,
+        'civicrm_entity_type' => 'Contribution',
+        'civicrm_entity_id' => $this->contribution['id'],
+        'eb_entity_type' => 'Order',
+        'eb_entity_id' => $this->entityId,
+      ), "Processing Order {$this->entityId}, attempting to create/update Order/Contribution link.");
+    }
   }
 
   public function primaryPaymentParams() {
@@ -269,21 +281,26 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   }
 
   public function assignExistingPayments() {
+    \CRM_Core_Error::debug_log_message("in assignExistingPayments checking for existing payments");
     // check for existing payments
     $result = civicrm_api3('Payment', 'get', [
       'sequential' => 1,
       'entity_id' => $this->contribution['id'],
     ]);
-
     \CRM_Core_Error::debug_var("payment result", $result);
     if ($result['count'] > 0) {
       $this->existingPayments = $result['values'];
       foreach ($this->existingPayments as $paymentId=>$paymentInfo) {
         \CRM_Core_Error::debug_var("existing pmt", $paymentInfo);
-        $this->existingPaymentsTotalValue += $paymentInfo['total_amount'];
+        if ($paymentInfo['status_id'] == 1)  {
+          $this->existingPaymentsTotalValue += $paymentInfo['total_amount'];
+        } else if ($paymentInfo['status_id'] == 7) {
+          $this->existingRefundsTotalValue += $paymentInfo['total_amount'];
+        }
       }
     }
     \CRM_Core_Error::debug_log_message("existing payments value {$this->existingPaymentsTotalValue}");
+    \CRM_Core_Error::debug_log_message("existing refunds value {$this->existingRefundsTotalValue}");
   }
 
   /**
@@ -291,42 +308,58 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
    */
   public function applyPayments() {
     \CRM_Core_Error::debug_log_message("in applyPayments");
-
     $this->assignExistingPayments();
+
+    \CRM_Core_Error::debug_var("contribution", $this->contribution);
+
+    if ($this->isExistingContribution and $this->isOrderCancelled) {
+      $fullyRefunded = abs($this->existingPaymentsTotalValue) == abs($this->existingRefundsTotalValue);
+      if ($fullyRefunded) {
+        \CRM_Core_Error::debug_log_message("this cancelled contribution is fully refunded, don't change payments");
+        return;
+      }
+    }
+
     $this->assignPaymentParams();
     $this->dispatchSymfonyEvent("PaymentParamsAssigned");
 
-    \CRM_Core_Error::debug_var("contribution", $this->contribution);
     
     $this->payments = array();
-    \CRM_Core_Error::debug_var("proposed payments", $this->proposedPayments);
     foreach ($this->proposedPayments as $paymentInfo) {
+      \CRM_Core_Error::debug_log_message("looping over proposed payments..");
       \CRM_Core_Error::debug_var("paymentInfo", $paymentInfo);
-      $payment = _eventbrite_civicrmapi('Payment', 'create', $paymentInfo);
-      \CRM_Core_Error::debug_var("payment", $payment);
+      $result = _eventbrite_civicrmapi('Payment', 'create', $paymentInfo);
+      \CRM_Core_Error::debug_var("result of payment create", $result);
+      $payment = $result['values'][array_key_first($result['values'])];
+      \CRM_Core_Error::debug_var("payment is..", $payment);
       $this->payments[] = $payment;
     }
+    \CRM_Core_Error::debug_var("all payments", $this->payments);
   }
 
   public function cancelOrder() {
-      $cancel_date = CRM_Utils_Date::processDate(CRM_Utils_Array::value('changed', $this->order));
-      // marking contribution as cancelled will make a refund on cancel_date
-      $result = _eventbrite_civicrmapi('Contribution', 'update', array(
-        'id' => $contributionId,
-        'contribution_status_id' => 'Refunded',
-        'cancel_date' => $cancel_date // cancel or refund date
-      ));
+    \CRM_Core_Error::debug_log_message("in cancelOrder");
+    $cancel_date = CRM_Utils_Date::processDate(CRM_Utils_Array::value('changed', $this->order));
+    // marking contribution as cancelled will make a refund on cancel_date
+    $result = _eventbrite_civicrmapi('Contribution', 'update', array(
+      'id' => $this->contribution['id'],
+      'contribution_status_id' => 'Refunded',
+      'cancel_date' => $cancel_date // cancel or refund date
+    ));
 
-      // mark attendee status as cancelled
-      foreach ($this->orderParticipantIds as $participantId) {
-        $result = _eventbrite_civicrmapi('Participant', 'create', array(
-          'id' => $participantId,
-          'participant_status' => 'Cancelled'
-        ));
-      }
+    \CRM_Core_Error::debug_var("result of refunding contribution", $result);
+
+    // mark attendee status as cancelled
+    foreach ($this->orderParticipantIds as $participantId) {
+      $result = _eventbrite_civicrmapi('Participant', 'create', array(
+        'id' => $participantId,
+        'participant_status' => 'Cancelled'
+      ));
+    }
   }
 
   public function updateContribution() {
+    \CRM_Core_Error::debug_log_message("in updateContribution");
     if (!$this->isEventMonetary()) {
       return;
     }
@@ -345,10 +378,12 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
 
     $this->createOrUpdateContribution();
     $this->applyPayments();
+    \CRM_Core_Error::debug_log_message("done iwth applyPaments");
 
     if ($this->isOrderCancelled) {
       $this->cancelOrder();
     }
+    \CRM_Core_Error::debug_log_message("done with updateContribution");
   }
 
   /*
@@ -449,6 +484,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   }
 
   public function process() {
+    \CRM_Core_Error::debug_log_message("in process() for ORder");
     \CRM_Core_Error::debug_var("order", $this->order);
     $this->setCiviEventIdForOrder();
 
@@ -471,5 +507,6 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     $this->updateRegisteredBy();
     $this->updatePrimaryParticipant($existingPrimaryParticipantLinkId);
     $this->updateContribution();
+    \CRM_Core_Error::debug_log_message("done iwth updatin contrib..");
   }
 }
