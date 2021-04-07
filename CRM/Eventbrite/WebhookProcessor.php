@@ -33,7 +33,6 @@ class CRM_Eventbrite_WebhookProcessor {
    * to allow other extensions to customize aspects of behavior.
    */
   protected function dispatchSymfonyEvent($eventName) {
-    \CRM_Core_Error::debug_log_message("in dispatchSymfonyEvent");
     $symfonyEvent = new GenericEvent($this);
     $qualifiedEventName = "eventbrite.processor.$eventName";
     \CRM_Core_Error::debug_log_message("about to dispatch event $qualifiedEventName");

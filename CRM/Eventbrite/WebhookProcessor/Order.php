@@ -60,7 +60,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   }
 
   public function assignPrimaryParticipant() {
-    \CRM_Core_Error::debug_log_message("in getExistingPrimaryParticipantId");
+    \CRM_Core_Error::debug_log_message("in assignPrimaryParticipant");
     $result = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'eb_entity_type' => 'Order',
       'eb_entity_id' => $this->entityId,
@@ -82,7 +82,8 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
         ));
       } else {
         // this is valid participant, using it
-        $this->primaryParticipantId = $linkData['civicrm_entity_id'];
+          $this->primaryParticipantId = $linkData['civicrm_entity_id'];
+          $this->existingPrimaryParticipantLinkId = $linkData['id'];;
       }
     }
   }
@@ -122,14 +123,28 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
    * Returns a link to the civi participant ID corresponding to the EB attendeeID if a link is found
    */ 
   public function getExistingAttendeeLink($attendeeId) {
-    $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
+    $result = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'civicrm_entity_type' => 'Participant',
       'eb_entity_type' => 'Attendee',
       'eb_entity_id' => $attendeeId,
       'sequential' => 1,
-    ), "Processing Order {$this->entityId}, attempting to get Participant linked to participant '$attendeeId'.");
-    if ($link['count']) {
-      return $link['values'][0]['civicrm_entity_id'];
+      // make sure this is still a valid participant...
+      'api.participant.getcount' => array(
+        'id' => '$value.civicrm_entity_id',
+      ),
+    ), "Processing Order {$this->entityId}, attempting to get Participant linked to attendee  '$attendeeId'.");
+    \CRM_Core_Error::debug_var("result of search for existing participant", $result);
+    if ($result['count']) {
+      $existingInfo = $result['values'][array_key_first($result['values'])];
+      \CRM_Core_Error::debug_var("existinginfo", $existingInfo);
+      // got a result, now make sure it's valid
+      if ($existingInfo['api.participant.getcount']  == 0) {
+        // no longer valid, delete it
+        _eventbrite_civicrmapi('EventbriteLink', 'delete', array('id' => $existingInfo['id']));
+      } else {
+        // ok it's valid, return it
+        return $result['values'][array_key_first($result['values'])]['civicrm_entity_id'];
+      }
     }
   }
 
@@ -161,10 +176,10 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     }
   }
 
-  public function updatePrimaryParticipant($existingPrimaryParticipantLinkId) {
+  public function updatePrimaryParticipant() {
     // Create/update link for PrimaryParticipant
     _eventbrite_civicrmapi('EventbriteLink', 'create', array(
-      'id' => $existingPrimaryParticipantLinkId,
+      'id' => $this->existingPrimaryParticipantLinkId,
       'eb_entity_type' => 'Order',
       'civicrm_entity_type' => 'PrimaryParticipant',
       'eb_entity_id' => $this->entityId,
@@ -249,19 +264,42 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     $this->existingRefundsTotalValue = 0;
   }
 
+  public function updateParticipantPayment() {
+    \CRM_Core_Error::debug_var("in updateParticipantPayment", $this->primaryParticipantId);
+    // Check for existing participant payment
+    $result = _eventbrite_civicrmapi('ParticipantPayment', 'get', array(
+      'participant_id' => $this->primaryParticipantId
+    ));
+
+    $params = array(
+      'participant_id' => $this->primaryParticipantId,
+      'contribution_id' => $this->contribution['id']
+    );
+
+    if ($result['count'] > 0) {
+      // update the existing ParticipantPayment
+      $params['id'] = $result['values'][array_key_first($result['values'])]['id'];
+    }
+
+    // Link primary participant to contribution as participantPayment.
+    $this->participantPayment = _eventbrite_civicrmapi('ParticipantPayment', 'create', $params);
+    \CRM_Core_Error::debug_var("updated ", $this->participantPayment);
+  }
+
   public function createOrUpdateContribution() {
     \CRM_Core_Error::debug_log_message("in createOrUpdateContribution");
     $msg = "Processing Order {$this->entityId}, attempting to create/update contribution record.";
     $result = _eventbrite_civicrmapi('Contribution', 'create', $this->contributionParams, $msg);
-    $this->contribution = array_values($result['values'])[0];
+
+    \CRM_Core_Error::debug_var("result of creating/updating contribution", $result);
+    
+    $this->contribution = $result['values'][array_key_first($result['values'])];
+
+    \CRM_Core_Error::debug_var("newly assigned contribution", $this->contribution);
 
     \CRM_Core_Error::debug_var("participant", $this->primaryParticipantId);
 
-    // Link primary participant to contribution as participantPayment.
-    $participantPayment = _eventbrite_civicrmapi('ParticipantPayment', 'create', array(
-      'participant_id' => $this->primaryParticipantId,
-      'contribution_id' => $this->contribution['id']
-    ));
+    $this->updateParticipantPayment();
 
     if (!$this->isExistingContribution) {
       // Create new link between Order and ContributionId.
@@ -480,6 +518,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
 
     foreach ($this->orderAttendees as $orderAttendeeId => $orderAttendee) {
       $orderParticipantId = $this->getExistingAttendeeLink($orderAttendeeId);
+      \CRM_Core_Error::debug_var("after calling getExistingAttendeeLink", $orderParticipantId);
 
       $this->currentAttendeeProcessor = $this->createAttendeeProcessor($orderAttendee);
 
@@ -490,7 +529,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
 
       $this->orderParticipantIds[] = $orderParticipantId;
       if ($orderAttendeeId == $this->primaryAttendeeId) {
-        \CRM_Core_Error::debug_var("orderParticipantId", $orderParticipantId);
+        \CRM_Core_Error::debug_var("found primary participant orderParticipantId", $orderParticipantId);
         $this->primaryParticipantId = $orderParticipantId;
       }
 
@@ -521,7 +560,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     $this->processAttendees();
 
     $this->updateRegisteredBy();
-    $this->updatePrimaryParticipant($existingPrimaryParticipantLinkId);
+    $this->updatePrimaryParticipant();
     $this->updateContribution();
     \CRM_Core_Error::debug_log_message("done iwth updatin contrib..");
   }
