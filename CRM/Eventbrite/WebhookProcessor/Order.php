@@ -59,35 +59,45 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     }
   }
 
-  public function getExistingPrimaryParticipantId() {
+  public function assignPrimaryParticipant() {
     \CRM_Core_Error::debug_log_message("in getExistingPrimaryParticipantId");
-    $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
+    $result = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'eb_entity_type' => 'Order',
       'eb_entity_id' => $this->entityId,
       'civicrm_entity_type' => 'PrimaryParticipant',
       'sequential' => 1,
-      'api.participant.get' => array(
+      // make sure this is still a valid participant...
+      'api.participant.getcount' => array(
         'id' => '$value.civicrm_entity_id',
       ),
     ), "Processing Order {$this->entityId}, attempting to get linked PrimaryParticipant for the order.");
 
-    \CRM_Core_Error::debug_var("existing primary participant link", $link);
-    if ($link['count']) {
-      $existingPrimaryParticipantLinkId = $link['id'];
-      $existingPrimaryParticipantId = CRM_Utils_Array::value('id', $link['values'][0]['api.participant.get']);
-      return $existingPrimaryParticipantId;
+    \CRM_Core_Error::debug_var("result of search for exsiting primary participant", $result);
+    if ($result['count'] > 0) {
+      $linkData = $result['values'][array_key_first($result['values'])];
+      if ($linkData['api.participant.getcount'] == 0) {
+        \CRM_Core_Error::debug_log_message("deleting linked PrimaryParticipant since no longer valid");
+        _eventbrite_civicrmapi('EventbriteLink', 'delete', array(
+          'id' => $linkData['id']
+        ));
+      } else {
+        // this is valid participant, using it
+        $this->primaryParticipantId = $linkData['civicrm_entity_id'];
+      }
     }
   }
 
   public function getParticipantsRegisteredByPrimary() {
     $existingParticipantIds = array($this->primaryParticipantId);
-    $participant = _eventbrite_civicrmapi('participant', 'get', array(
+    $result = _eventbrite_civicrmapi('participant', 'get', array(
       'registered_by_id' => $this->primaryParticipantId,
       'options' => array(
         'limit' => 0,
       ),
     ), "Processing Order {$this->entityId}, attempting to get all participants currently associated with this order.");
-    $existingParticipantIds += array_keys($participant['values']);
+    \CRM_Core_Error::debug_var("result of search for exsiting primary participant", $result);
+
+    $existingParticipantIds += array_keys($result['values']);
     return $existingParticipantIds;
   }
 
@@ -117,7 +127,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       'eb_entity_type' => 'Attendee',
       'eb_entity_id' => $attendeeId,
       'sequential' => 1,
-    ), "Processing Order {$this->entityId}, attempting to get Attendee linked to participant '$participantId'.");
+    ), "Processing Order {$this->entityId}, attempting to get Participant linked to participant '$attendeeId'.");
     if ($link['count']) {
       return $link['values'][0]['civicrm_entity_id'];
     }
@@ -201,37 +211,42 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   public function assignExistingContribution() {
     \CRM_Core_Error::debug_log_message("in assignExistingContribution");
     // Determine which Civi contribution is linked to this EB order, if any.
-    $link = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
+    $result = _eventbrite_civicrmapi('EventbriteLink', 'get', array(
       'eb_entity_type' => 'Order',
       'civicrm_entity_type' => 'Contribution',
       'eb_entity_id' => $this->entityId,
       'sequential' => 1,
+      // make sure this is still a valid contribution...
+      'api.contribution.get' => array(
+        'id' => '$value.civicrm_entity_id',
+      ),
     ), "Processing Order {$this->entityId}, attempting to get linked contribution for this order, if any.");
-    $linkId = CRM_Utils_Array::value('id', $link);
-    \CRM_Core_Error::debug_log_message("existing contribution linkid $linkId");
 
-    $this->existingPayments = null;
-    $this->existingPaymentsTotalValue = 0;
-    $this->existingRefundsTotalValue = 0;
-
-    if ($linkId) {
-      $linkedContributionId = CRM_Utils_Array::value('civicrm_entity_id', $link['values'][0]);
-      $result = _eventbrite_civicrmapi('Contribution', 'get', array('id' => $linkedContributionId));
-      if ($result['count'] == 0) {
-        // Existing link points to nothing, remove it.
+    \CRM_Core_Error::debug_var("result of search for exsiting contribution", $result);
+    if ($result['count'] > 0) {
+      $linkData = $result['values'][array_key_first($result['values'])];
+      $linkId = $linkData['id'];
+      $linkedContributionId = $linkData['civicrm_entity_id'];
+      if ($linkData['api.contribution.get']['count'] == 0) {
         \CRM_Core_Error::debug_log_message("existing contribution link no longer valid, remove it");
         _eventbrite_civicrmapi('EventbriteLink', 'delete', array('id' => $linkId));
         unset($linkId);
         unset($linkedContributionId);
       } else {
-        // Link points to valid contribution.
+          // Link points to valid contribution.
+        $contribData = $linkData['api.contribution.get']['values'];
+        \CRM_Core_Error::debug_var("contribData", $contribData);
+        $linkedContribution = $contribData[array_key_first($contribData)];
         $this->contributionParams['id'] = $linkedContributionId;
-        $this->contributionParams['contribution_status_id'] = $result['values'][0]['contribution_status_id'];
-        $this->contributionParams['payment_instrument_id'] = $result['values'][0]['payment_instrument_id'];
+        $this->contributionParams['contribution_status_id'] = $linkedContribution['contribution_status_id'];
+        $this->contributionParams['payment_instrument_id'] = $linkedContribution['payment_instrument_id'];
         $this->isExistingContribution = true;
         \CRM_Core_Error::debug_log_message("found existing valid contribution with status {$this->contributionParams['contribution_status_id']}");
       }
     }
+    $this->existingPayments = null;
+    $this->existingPaymentsTotalValue = 0;
+    $this->existingRefundsTotalValue = 0;
   }
 
   public function createOrUpdateContribution() {
@@ -387,7 +402,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   }
 
   /*
-      get a Civi contact for the person who placed the order
+      get or create a Civi contact for the person who placed the order
       (may or may not be an attendee)
    */
   public function getOrderPurchaser() {
@@ -420,9 +435,10 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
     $this->orderAttendeeIds = array_keys($this->orderAttendees);
     $this->primaryAttendeeId = min($this->orderAttendeeIds);
 
-    // remove any participants previously linked who are no longer part of the order
-    $this->primaryParticipantId = $this->getExistingPrimaryParticipantId();
+    $this->assignPrimaryParticipant();
+    $this->dispatchSymfonyEvent("PrimaryParticipantAssigned");
 
+    // remove any participants previously linked who are no longer part of the order
     if ($this->primaryParticipantId) {
       $existingParticipantIds = $this->getParticipantsRegisteredByPrimary();
 
