@@ -2,7 +2,6 @@
 
 use CRM_Eventbrite_ExtensionUtil as E;
 
-const DEDUPE_RULE_ID = 1;
 const DEFAULT_PAYMENT_PROCESSOR = 1;
 
 /**
@@ -444,23 +443,7 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
       (may or may not be an attendee)
    */
   public function getOrderPurchaser() {
-    // TODO unify this with Attendee contact Params()
-    $contactParams =  array(
-      'contact_type' => 'Individual',
-      'first_name' => $this->order['first_name'],
-      'last_name' => $this->order['last_name'],
-      'email' => $this->order['email'],
-    );
-    $result = _eventbrite_civicrmapi('Contact', 'duplicatecheck', array(
-      'dedupe_rule_id' => DEDUPE_RULE_ID,
-      'match' => $contactParams,
-    ));
-    if ($result['count'] > 0) {
-      $contactId = array_keys($result['values'])[0];
-      return _eventbrite_civicrmapi('Contact', 'getsingle', array('id' => $contactId));
-    } else {
-      return  _eventbrite_civicrmapi('Contact', 'create', $contactParams);
-    }
+    return $this->findOrCreateContact($this->order['first_name'], $this->order['last_name'], $this->order['email']);
   }
 
   /**
@@ -469,6 +452,8 @@ class CRM_Eventbrite_WebhookProcessor_Order extends CRM_Eventbrite_WebhookProces
   public function setPurchaserAndPrimaryAttendee() {
     // the person who purchased the order need not be an attendee
     $this->orderPurchaserContact = $this->getOrderPurchaser();
+    \CRM_Core_Error::debug_var("order purchaser contact ", $this->orderPurchaserContact);
+
 
     $this->orderAttendeeIds = array_keys($this->orderAttendees);
     $this->primaryAttendeeId = min($this->orderAttendeeIds);

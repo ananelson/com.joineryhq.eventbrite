@@ -3,6 +3,8 @@
 use CRM_Eventbrite_ExtensionUtil as E;
 use Symfony\Component\EventDispatcher\GenericEvent;
 
+const DEDUPE_RULE_ID = 1;
+
 /**
  * Processor for Eventbrite webhook messages.
  */
@@ -53,6 +55,32 @@ class CRM_Eventbrite_WebhookProcessor {
     $this->entityType = $pathElements[1];
 
     $this->path = implode("/", array_slice(explode('/', $path), 2));
+  }
+
+  protected function fetchDuplicateContacts($firstName, $lastName, $email) {
+    $this->tempContactParams =  array(
+      'contact_type' => 'Individual',
+      'first_name' => $firstName,
+      'last_name' => $lastName,
+      'email' => $email
+    );
+    $this->dispatchSymfonyEvent("TempContactParamsAssigned");
+    return _eventbrite_civicrmapi('Contact', 'duplicatecheck', array(
+      'dedupe_rule_id' => DEDUPE_RULE_ID,
+      'match' => $this->tempContactParams,
+    ));
+  }
+
+  protected function findOrCreateContact($firstName, $lastName, $email) {
+    \CRM_Core_Error::debug_log_message("in findOrCreateContact");
+    $result = $this->fetchDuplicateContacts($firstName, $lastName, $email);
+    \CRM_Core_Error::debug_var("result", $result);
+    if ($result['count'] > 0) {
+      $contactId = $result['id'];
+      return _eventbrite_civicrmapi('Contact', 'getsingle', array('id' => $contactId));
+    } else {
+      return  _eventbrite_civicrmapi('Contact', 'create', $contactParams);
+    }
   }
 
   protected function fetchEntity($additionalPath = NULL, $expansions = array()) {

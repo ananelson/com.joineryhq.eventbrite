@@ -26,16 +26,6 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
     $this->attendee = $this->generateData();
   }
 
-  public function getContactParams() {
-    // TODO add more fields here, the dedupe rule will pick out the relevant ones
-    return array(
-      'contact_type' => 'Individual',
-      'first_name' => $this->attendee['profile']['first_name'],
-      'last_name' => $this->attendee['profile']['last_name'],
-      'email' => $this->attendee['profile']['email'],
-    );
-  }
-
   public function assignAttendeeProfile() {
     $this->attendeeProfile = $this->attendee['profile'];
     $this->dispatchSymfonyEvent("AttendeeProfileAssigned");
@@ -45,12 +35,11 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
    * Sets a list of contacts matching this attendee's name and email.
    */
   public function assignMatchingContacts() {
-    $this->contactParams = $this->getContactParams();
-    $result = _eventbrite_civicrmapi('Contact', 'duplicatecheck', array(
-      'dedupe_rule_id' => DEDUPE_RULE_ID, // TODO make this a package setting
-      'match' => $this->contactParams,
-    ), "Looking for existing contacts matching attendee {$this->entityId}.");
-    $this->matchingContacts = array_keys($result['values']);
+    $this->matchingContacts = array_keys($this->fetchDuplicateContacts(
+      $this->attendee['profile']['first_name'],
+      $this->attendee['profile']['last_name'],
+      $this->attendee['profile']['email']
+    ));
   }
 
   public function setCiviEventIdForAttendee() {
@@ -142,19 +131,13 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
   }
 
   private function createOrUpdateContact() {
-    $apiParams = array(
-      'contact_type' => 'Individual',
-      'first_name' => $this->attendee['profile']['first_name'],
-      'last_name' => $this->attendee['profile']['last_name'],
-      'email' => $this->attendee['profile']['email'],
-      'id' => $this->contactId,
-    );
-    if (empty($this->contactId)) {
-      $apiParams['source'] = E::ts('Eventbrite Integration');
-    }
-    $contactCreate = _eventbrite_civicrmapi('Contact', 'create', $apiParams,
-      "Processing Attendee {$this->entityId}, attempting to update contact record.");
-    $this->contactId = CRM_Utils_Array::value('id', $contactCreate);
+    $contact = $this->findOrCreateContact(
+      $this->attendee['profile']['first_name'],
+      $this->attendee['profile']['last_name'],
+      $this->attendee['profile']['email']);
+
+    \CRM_Core_Error::debug_var("create contact", $contact);
+    $this->contactId = CRM_Utils_Array::value('id', $contact);
 
     $this->assignAttendeeProfile();
     $this->updateContactAddresses();
