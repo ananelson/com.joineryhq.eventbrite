@@ -186,7 +186,8 @@ class CRM_Eventbrite_WebhookProcessor_Attendee extends CRM_Eventbrite_WebhookPro
     \CRM_Core_Error::debug_log_message("about to create participant...");
     $result = _eventbrite_civicrmapi('Participant', 'create', $this->participantParams, 
       "Processing Attendee {$this->entityId}, creating or updating Participant record");
-    $participant = array_values($result['values'])[0];
+    \CRM_Core_Error::debug_var("result of creating participant", $result);
+    $participant = $result['values'][array_key_first($result['values'])];
     \CRM_Core_Error::debug_var("participant", $participant);
     $this->participantId = $participant['id'];
   }

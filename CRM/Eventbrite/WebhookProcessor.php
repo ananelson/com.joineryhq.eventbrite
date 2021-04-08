@@ -74,12 +74,16 @@ class CRM_Eventbrite_WebhookProcessor {
   protected function findOrCreateContact($firstName, $lastName, $email) {
     \CRM_Core_Error::debug_log_message("in findOrCreateContact");
     $result = $this->fetchDuplicateContacts($firstName, $lastName, $email);
-    \CRM_Core_Error::debug_var("result", $result);
+    \CRM_Core_Error::debug_var("result of fetch contacts", $result);
     if ($result['count'] > 0) {
       $contactId = $result['id'];
-      return _eventbrite_civicrmapi('Contact', 'getsingle', array('id' => $contactId));
+      $result = _eventbrite_civicrmapi('Contact', 'get', array('id' => $contactId));
+      \CRM_Core_Error::debug_var("result of get existing contact", $result);
+      return $result['values'][array_key_first($result['values'])];
     } else {
-      return  _eventbrite_civicrmapi('Contact', 'create', $contactParams);
+      $result = _eventbrite_civicrmapi('Contact', 'create', $this->tempContactParams);
+      \CRM_Core_Error::debug_var("result of create new contact", $result);
+      return $result['values'][array_key_first($result['values'])];
     }
   }
 
